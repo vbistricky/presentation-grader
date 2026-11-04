@@ -139,8 +139,19 @@ def ensure_ollama_installed() -> str:
         return executable
     installer = download_ollama_installer()
     log("Installing Ollama for the current Windows user…")
+    # Ollama's official Windows installer is per-user by default. Pin the
+    # destination to the current user's profile so this app never requests a
+    # machine-wide installation or writes to Program Files.
+    ollama_user_dir = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Programs" / "Ollama"
+    ollama_user_dir.mkdir(parents=True, exist_ok=True)
     completed = subprocess.run(
-        [str(installer), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+        [
+            str(installer),
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            f"/DIR={ollama_user_dir}",
+        ],
         check=False
     )
     if completed.returncode != 0:
