@@ -295,7 +295,7 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
                     ) if shoulder_center and previous_shoulder_center else None
                 )
                 movement_flags.append(hand_motion)
-                hand_visible_flags.append(bool(hands))
+                hand_visible_flags.append(bool(hand_centers))
                 pose_visible_flags.append(bool(pose_data["visible"]))
                 observations.append({
                     "time_seconds": round(timestamp, 2),
