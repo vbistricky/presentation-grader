@@ -111,19 +111,14 @@ def installed_models() -> set[str]:
     return {item.get("name", "") for item in response.json().get("models", [])}
 
 
-def ensure_models() -> None:
+def ensure_models(ollama_executable: str) -> None:
     installed = installed_models()
     for model in REQUIRED_MODELS:
         if model in installed or any(name.split(":")[0] == model.split(":")[0] and name.endswith(model.split(":")[-1]) for name in installed):
             log(f"Model already installed: {model}")
             continue
         log(f"Downloading AI model {model}. This may take a while and requires several GB of free disk space…")
-        completed = subprocess.run(["ollama", "pull", model], check=False)
-        if completed.returncode != 0:
-            executable = find_ollama()
-            if not executable:
-                raise RuntimeError("Ollama could not be found while downloading models.")
-            completed = subprocess.run([executable, "pull", model], check=False)
+        completed = subprocess.run([ollama_executable, "pull", model], check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"Downloading {model} failed. Check your internet connection and run Presentation Grader again.")
 
@@ -182,7 +177,7 @@ def main() -> int:
     log("Checking local AI components. The first launch downloads Ollama and its AI models automatically.")
     ollama = ensure_ollama_installed()
     ensure_ollama_server(ollama)
-    ensure_models()
+    ensure_models(ollama)
     launch_app()
     return 0
 
