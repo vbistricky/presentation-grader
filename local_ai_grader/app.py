@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -63,10 +64,21 @@ def ollama_chat(model: str, messages: list[dict], timeout: int = 900) -> str:
     response.raise_for_status()
     return response.json()["message"]["content"]
 
+def ffmpeg_executable() -> str:
+    installed = shutil.which("ffmpeg")
+    if installed:
+        return installed
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as exc:
+        raise FileNotFoundError("Bundled FFmpeg could not be located.") from exc
+
+
 def extract_media(video_path: str, work: Path, sample_count: int = 24):
     audio_path = work / "audio.wav"
     subprocess.run(
-        ["ffmpeg", "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", str(audio_path)],
+        [ffmpeg_executable(), "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", str(audio_path)],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
     )
     cap = cv2.VideoCapture(video_path)
