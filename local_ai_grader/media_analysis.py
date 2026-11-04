@@ -377,3 +377,43 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
             "The system does not infer the meaning or rhetorical appropriateness of a movement."
         ]
     }
+
+def align_speech_and_motion(audio_metrics: dict, visual_tracking: dict) -> list[dict]:
+    """Place hand-movement observations alongside timestamped acoustic speech features.
+
+    Temporal overlap is descriptive only; it does not establish that a movement
+    was a gesture or that it intentionally emphasized the spoken content.
+    """
+    movement_events = visual_tracking.get("movement_events", [])
+    windows = visual_tracking.get("five_second_windows", [])
+    aligned = []
+    for segment in audio_metrics.get("segment_features", []):
+        start = float(segment["start_seconds"])
+        end = float(segment["end_seconds"])
+        overlapping_events = [
+            {"start_seconds": event["start_seconds"], "end_seconds": event["end_seconds"]}
+            for event in movement_events
+            if float(event["start_seconds"]) <= end and float(event["end_seconds"]) >= start
+        ]
+        overlapping_windows = [
+            window for window in windows
+            if float(window["start_seconds"]) <= end and float(window["end_seconds"]) >= start
+        ]
+        movement_rates = [
+            float(window["hand_position_change_percent"])
+            for window in overlapping_windows
+            if window.get("hand_position_change_percent") is not None
+        ]
+        aligned.append({
+            "start_seconds": start,
+            "end_seconds": end,
+            "transcript_excerpt": segment.get("transcript_excerpt", ""),
+            "pitch_10_to_90_range_semitones": segment.get("pitch_10_to_90_range_semitones"),
+            "pitch_median_change_first_to_second_half_semitones": segment.get("pitch_median_change_first_to_second_half_semitones"),
+            "relative_intensity_10_to_90_range_db": segment.get("relative_intensity_10_to_90_range_db"),
+            "overlapping_hand_movement_intervals": overlapping_events,
+            "hand_position_change_percent_in_overlapping_windows": (
+                round(float(np.mean(movement_rates)), 1) if movement_rates else None
+            )
+        })
+    return aligned[:100]
