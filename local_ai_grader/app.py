@@ -64,6 +64,44 @@ def ollama_chat(model: str, messages: list[dict], timeout: int = 900) -> str:
     response.raise_for_status()
     return response.json()["message"]["content"]
 
+def ensure_ollama_model(model: str) -> None:
+    """Download a selected local model on demand, with visible pull progress."""
+    tags = requests.get("http://127.0.0.1:11434/api/tags", timeout=15)
+    tags.raise_for_status()
+    installed = {item.get("name", "") for item in tags.json().get("models", [])}
+    if model in installed:
+        return
+
+    st.info(f"Downloading {model} from Ollama. This is a one-time download for this computer.")
+    progress = st.progress(0.0)
+    detail = st.empty()
+    response = requests.post(
+        "http://127.0.0.1:11434/api/pull",
+        json={"name": model, "stream": True},
+        stream=True,
+        timeout=(15, None),
+    )
+    response.raise_for_status()
+    last_status = "Preparing download…"
+    for line in response.iter_lines():
+        if not line:
+            continue
+        item = json.loads(line)
+        if item.get("error"):
+            raise RuntimeError(f"Ollama could not download {model}: {item['error']}")
+        last_status = item.get("status", last_status)
+        total = item.get("total")
+        completed = item.get("completed")
+        if total:
+            fraction = min(1.0, completed / total) if completed is not None else 0.0
+            progress.progress(fraction)
+            detail.write(f"{model}: {last_status} — {fraction:.0%}")
+        else:
+            detail.write(f"{model}: {last_status}")
+    progress.progress(1.0)
+    detail.success(f"{model} is ready.")
+
+
 def ffmpeg_executable() -> str:
     installed = shutil.which("ffmpeg")
     if installed:
@@ -207,9 +245,20 @@ st.warning(
 
 with st.sidebar:
     st.header("Local model settings")
-    text_model = st.text_input("Text model in Ollama", "qwen2.5:7b")
-    vision_model = st.text_input("Vision model in Ollama", "qwen2.5vl:7b")
-    whisper_size = st.selectbox("Speech recognition model", ["base", "small", "medium"], index=1)
+    st.caption("Compact models are selected by default to reduce first-run downloads. Advanced models can be downloaded automatically when selected.")
+    text_choices = {
+        "Compact — Qwen 2.5 3B (about 1.9 GB)": "qwen2.5:3b",
+        "Advanced — Qwen 2.5 7B (about 4.7 GB)": "qwen2.5:7b",
+    }
+    vision_choices = {
+        "Compact — Qwen 2.5 VL 3B (about 3.2 GB)": "qwen2.5vl:3b",
+        "Advanced — Qwen 2.5 VL 7B (about 6.0 GB)": "qwen2.5vl:7b",
+    }
+    text_label = st.selectbox("Rubric reasoning model", list(text_choices), index=0)
+    vision_label = st.selectbox("Visual analysis model", list(vision_choices), index=0)
+    text_model = text_choices[text_label]
+    vision_model = vision_choices[vision_label]
+    whisper_size = st.selectbox("Speech recognition model", ["tiny", "base", "small", "medium"], index=1)
     sample_count = st.slider("Vision-model image samples", 8, 36, 24)
     tracking_fps = st.slider("Continuous pose/hand tracking rate (frames per second)", 2, 10, 5)
     st.markdown("Landmark tracking samples the full video at the selected rate; it does not analyze every source frame.")
@@ -237,6 +286,9 @@ if video and st.button("Analyze presentation", type="primary"):
                 status.update(label=f"Tracking body and hand landmarks at {tracking_fps} fps…")
                 visual_tracking = track_body_and_hands(str(video_path), target_fps=float(tracking_fps))
                 st.write(f"Tracked {visual_tracking.get('observations', 0)} time points; pose landmarks detected in {visual_tracking.get('pose_landmark_detection_percent', 0)}% of samples; hands detected in {visual_tracking.get('hand_detection_percent', 0)}%.")
+                status.update(label="Checking selected local AI models…")
+                ensure_ollama_model(text_model)
+                ensure_ollama_model(vision_model)
                 status.update(label="Running local rubric analysis…")
                 result, visual_notes, speech_motion_alignment = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking)
                 status.update(label="Analysis complete", state="complete")
