@@ -266,7 +266,11 @@ def main() -> int:
         raise RuntimeError("The bundled Python runtime is missing. Reinstall Presentation Grader.")
     log("Checking for application updates. Only changed application files are downloaded; settings and AI models are kept.")
     update_application()
-    log("Checking local AI components. The first launch downloads Ollama and its AI models automatically.")
+    # Apply the compact defaults immediately even when this is the first launch
+    # of an older installed launcher that has just self-updated above.
+    global REQUIRED_MODELS
+    REQUIRED_MODELS = ("qwen2.5:3b", "qwen2.5vl:3b")
+    log("Checking local AI components. The first launch downloads the compact Ollama models automatically.")
     ollama = ensure_ollama_installed()
     ensure_ollama_server(ollama)
     ensure_models(ollama)
