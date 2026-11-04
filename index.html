@@ -10,6 +10,12 @@
 <p class="note"><b>Privacy:</b> Video preview stays in your browser. This version does not upload videos or send them to an AI service.</p>
 <div id="preview" hidden><video id="player" controls playsinline></video><div class="videobar"><span id="clock">00:00</span><button class="quiet" id="capture">Add evidence at current time</button></div></div>
 </section>
+<section class="panel ai-panel"><div class="heading"><h2><i>AI</i> Optional local AI grading</h2><small>Free companion app · runs on your computer</small></div>
+<p>For a provisional AI review, install the free local companion app. It transcribes speech and examines sampled video frames on your computer. It does not upload student videos to an AI provider.</p>
+<p><a href="https://github.com/vbistricky/presentation-grader/tree/local-ai-grader/local_ai_grader" target="_blank" rel="noopener">Setup instructions and local AI grader ↗</a></p>
+<label class="import-ai">Import a local AI evaluation (.json)<input id="aiImport" type="file" accept="application/json,.json"></label>
+<p class="note">Imported recommendations remain editable. The current prototype deliberately leaves Vocal Delivery unscored because it does not reliably assess vocal tone; instructors must review the video and assign that score. AI recommendations are not final grades.</p>
+</section>
 <section class="panel"><div class="heading"><h2><i>02</i> Rubric evaluation</h2><small>Select one level for each trait</small></div><div class="callout">Use the rubric language as the scoring standard. Support scores with evidence that can actually be heard or seen. Avoid inferring intent or behavior that cannot be verified.</div><div id="rubric"></div>
 <div class="summary"><div><small>TOTAL</small><b id="total">— / 16</b></div><div><small>AVERAGE</small><b id="average">— / 4</b></div><div><small>COMPLETED TRAITS</small><b id="completed">0 / 4</b></div></div></section>
 <section class="panel"><div class="heading"><h2><i>03</i> Evidence log</h2><small>Optional supporting observations</small></div>
