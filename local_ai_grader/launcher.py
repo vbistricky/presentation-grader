@@ -44,7 +44,7 @@ def update_application() -> None:
         commit = commit_response.json()
         latest_commit = commit["sha"]
         tree_sha = commit["commit"]["tree"]["sha"]
-        tree_response = session.get(api + "/git/trees/" + tree_sha, timeout=20)
+        tree_response = session.get(api + "/git/trees/" + tree_sha + "?recursive=1", timeout=20)
         tree_response.raise_for_status()
         entries = {item["path"]: item["sha"] for item in tree_response.json().get("tree", []) if item.get("type") == "blob"}
     except (requests.RequestException, KeyError, ValueError) as exc:
