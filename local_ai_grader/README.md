@@ -47,6 +47,12 @@ A Windows x64 installer is built automatically by the GitHub Actions workflow **
 
 The Windows installer bundles an isolated Python runtime, the application dependencies, and FFmpeg. It does not require the instructor to install Python, pip, FFmpeg, or configure a virtual environment. On first launch, the launcher automatically downloads and installs Ollama from its official Windows distribution, starts its local service, and downloads the two configured local models (`qwen2.5:7b` and `qwen2.5vl:7b`). The faster-whisper speech model is downloaded automatically the first time speech recognition is run. These first-run downloads require an internet connection and several GB of additional disk space; the AI models can require many more GB depending on the model versions.
 
+### Built-in application updates
+
+The Windows launcher includes an updater inside the same Presentation Grader application. Each time the instructor starts the app, it checks the public GitHub repository for newer copies of the application code, downloads only files whose verified Git blob SHA differs, verifies each downloaded file against GitHub's repository tree, and atomically replaces the changed files. It does not download a separate updater, reinstall the application, or replace instructor settings and locally downloaded AI models. If the network is unavailable or a downloaded file fails verification, the installed version is kept and startup continues.
+
+These automatic updates cover the Python application code (`launcher.py`, `app.py`, and `media_analysis.py`). Changes to Python dependencies, the bundled Python runtime, FFmpeg packaging, or installer configuration still require a new full installer. Updates are checked against the repository's `main` branch, so published code changes become available on the next launch. The launcher may need to restart for its own changes to take effect; the update is applied before the grading interface starts.
+
 The app runs in the instructor's browser but the processing and model inference run locally. A console window remains available during first-run setup so model-download progress and errors are visible. Logs are stored under `%LOCALAPPDATA%\\PresentationGrader\\logs`.
 
 ## Development requirements
