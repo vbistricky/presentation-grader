@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent
 PYTHON = ROOT / "python" / "python.exe"
 APP_DIR = ROOT / "local_ai_grader"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
-REQUIRED_MODELS = ("qwen2.5:7b", "qwen2.5vl:7b")
+REQUIRED_MODELS = ("qwen2.5:3b", "qwen2.5vl:3b")
 API = "http://127.0.0.1:11434"
 LOG_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "PresentationGrader" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -207,7 +207,7 @@ def ensure_models(ollama_executable: str) -> None:
         if model in installed or any(name.split(":")[0] == model.split(":")[0] and name.endswith(model.split(":")[-1]) for name in installed):
             log(f"Model already installed: {model}")
             continue
-        log(f"Downloading AI model {model}. This may take a while and requires several GB of free disk space…")
+        log(f"Downloading AI model {model}. This may take a while; compact defaults are about 5.1 GB combined…")
         completed = subprocess.run([ollama_executable, "pull", model], check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"Downloading {model} failed. Check your internet connection and run Presentation Grader again.")
