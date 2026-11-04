@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import socket
@@ -23,6 +24,84 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 def log(message: str) -> None:
     print(f"[Presentation Grader] {message}", flush=True)
+
+
+def update_application() -> None:
+    """Apply verified code-only updates from the public GitHub main branch."""
+    repo = "vbistricky/presentation-grader"
+    api = "https://api.github.com/repos/" + repo
+    raw = "https://raw.githubusercontent.com/" + repo + "/main/"
+    targets = {
+        "local_ai_grader/launcher.py": ROOT / "launcher.py",
+        "local_ai_grader/app.py": APP_DIR / "app.py",
+        "local_ai_grader/media_analysis.py": APP_DIR / "media_analysis.py",
+    }
+    session = requests.Session()
+    session.headers.update({"Accept": "application/vnd.github+json", "User-Agent": "Presentation-Grader-Updater"})
+    try:
+        commit_response = session.get(api + "/commits/main", timeout=12)
+        commit_response.raise_for_status()
+        commit = commit_response.json()
+        latest_commit = commit["sha"]
+        tree_sha = commit["commit"]["tree"]["sha"]
+        tree_response = session.get(api + "/git/trees/" + tree_sha, timeout=20)
+        tree_response.raise_for_status()
+        entries = {item["path"]: item["sha"] for item in tree_response.json().get("tree", []) if item.get("type") == "blob"}
+    except (requests.RequestException, KeyError, ValueError) as exc:
+        log(f"Update check unavailable; continuing with installed version ({exc}).")
+        return
+
+    changed = []
+    for relative, destination in targets.items():
+        expected_sha = entries.get(relative)
+        if not expected_sha:
+            continue
+        try:
+            current = destination.read_bytes() if destination.is_file() else b""
+            current_sha = hashlib.sha1(b"blob " + str(len(current)).encode("ascii") + b"\0" + current).hexdigest() if current else ""
+            if current_sha == expected_sha:
+                continue
+            response = session.get(raw + relative, timeout=45)
+            response.raise_for_status()
+            payload = response.content
+            actual_sha = hashlib.sha1(b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload).hexdigest()
+            if actual_sha != expected_sha:
+                raise RuntimeError("Git object checksum did not match GitHub's repository tree.")
+            changed.append((destination, payload))
+        except (requests.RequestException, OSError, RuntimeError) as exc:
+            log(f"Could not safely update {relative}; keeping installed copy ({exc}).")
+            return
+
+    if not changed:
+        log("Presentation Grader is up to date.")
+        return
+
+    backups = []
+    staged = []
+    try:
+        for destination, payload in changed:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name(destination.name + ".update-tmp")
+            temporary.write_bytes(payload)
+            staged.append((destination, temporary))
+        for destination, temporary in staged:
+            backup = destination.with_name(destination.name + ".update-backup")
+            if destination.exists():
+                shutil.copy2(destination, backup)
+                backups.append((destination, backup))
+            os.replace(temporary, destination)
+        for _, backup in backups:
+            backup.unlink(missing_ok=True)
+        log(f"Updated {len(changed)} application file(s) from GitHub ({latest_commit[:7]}).")
+    except OSError as exc:
+        for destination, backup in reversed(backups):
+            try:
+                os.replace(backup, destination)
+            except OSError:
+                pass
+        for _, temporary in staged:
+            temporary.unlink(missing_ok=True)
+        raise RuntimeError(f"Application update failed and rollback was attempted: {exc}") from exc
 
 
 def find_ollama() -> str | None:
@@ -174,6 +253,8 @@ def launch_app() -> None:
 def main() -> int:
     if not PYTHON.is_file():
         raise RuntimeError("The bundled Python runtime is missing. Reinstall Presentation Grader.")
+    log("Checking for application updates. Only changed application files are downloaded; settings and AI models are kept.")
+    update_application()
     log("Checking local AI components. The first launch downloads Ollama and its AI models automatically.")
     ollama = ensure_ollama_installed()
     ensure_ollama_server(ollama)
