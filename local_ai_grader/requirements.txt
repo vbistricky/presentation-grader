@@ -5,3 +5,4 @@ mediapipe==0.10.21
 requests==2.32.3
 numpy==1.26.4
 praat-parselmouth==0.4.6
+imageio-ffmpeg==0.5.1
