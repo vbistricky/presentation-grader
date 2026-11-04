@@ -36,6 +36,30 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --prefer-binary --no-compile --target build/package/python/Lib/site-packages -r local_ai_grader/requirements.txt
 
+      - name: Bundle the Microsoft Visual C++ runtime libraries
+        shell: pwsh
+        run: |
+          $runtimeFiles = @(
+            "vcruntime140.dll",
+            "vcruntime140_1.dll",
+            "msvcp140.dll",
+            "msvcp140_1.dll",
+            "msvcp140_2.dll",
+            "msvcp140_atomic_wait.dll",
+            "msvcp140_codecvt_ids.dll",
+            "concrt140.dll",
+            "vcomp140.dll"
+          )
+          foreach ($name in $runtimeFiles) {
+            $source = Join-Path $env:WINDIR "System32\$name"
+            if (Test-Path $source) {
+              Copy-Item $source "build/package/$name"
+            }
+          }
+          if (!(Test-Path "build/package/vcruntime140.dll") -or !(Test-Path "build/package/msvcp140.dll")) {
+            throw "Required Visual C++ runtime libraries were not found on the build runner."
+          }
+
       - name: Download and configure the embedded Python runtime
         shell: pwsh
         run: |
