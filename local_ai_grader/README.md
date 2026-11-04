@@ -32,8 +32,9 @@ A hand movement detection is not proof of an intentional gesture. Pose geometry 
 
 ## Important grading safeguards
 
-- **Vocal Delivery remains unscored by the AI.** Acoustic measurements cannot determine perceived room volume or whether intonation is engaging, mannered, defensive, or off-putting. The instructor must listen to the presentation.
-- **Nonverbal Communication remains unscored by the AI.** Tracking provides observable movement evidence, but cannot establish audience focus, eye contact, or the rhetorical meaning of gestures.
+- **Vocal Delivery receives a tentative best-fit score when usable audio evidence exists.** Pitch and relative-intensity patterns can support a cautious estimate of vocal variation, but cannot establish perceived room volume or whether intonation is engaging, mannered, defensive, or off-putting. The instructor should listen to the original presentation and confirm the score.
+- **Nonverbal Communication receives a tentative best-fit score when the speaker is sufficiently visible.** Tracking and sampled frames can support a cautious estimate based on visible movement, orientation, and posture proxies, but cannot establish audience focus, eye contact, or the rhetorical meaning/strategic use of gestures. The instructor should inspect the original video and confirm the score.
+- These categories are no longer automatically left blank just because some criteria cannot be measured. The AI should choose the closest-supported level, mark confidence, explain uncertainty, and identify what needs human verification. It should return no score only when the relevant media evidence is too incomplete or unreliable to support even a tentative estimate.
 - Speech recognition may misrecognize or omit words and filler words. Verify quotations, filler-word claims, and technical vocabulary against the original video.
 - Whisper segment boundaries are approximate. Gaps are not automatically unplanned pauses, and WPM estimates are not rigid cutoffs.
 - The system does not infer that a pause is strategic based on duration alone.
@@ -91,4 +92,4 @@ The video, extracted audio, sampled frames, landmark tracking, and transcript ar
 
 ## Output
 
-The downloadable JSON includes category recommendations, rationale, evidence, confidence, limitations, transcript, timestamped acoustic measurements, speech timing, full-video pose/hand tracking summaries, and supplemental visual observations. The instructor can review the original video alongside the evidence.
+The downloadable JSON includes tentative category recommendations where usable evidence exists, rationale, evidence, confidence, limitations, transcript, timestamped acoustic measurements, speech timing, full-video pose/hand tracking summaries, and supplemental visual observations. Vocal Delivery and Nonverbal Communication scores are explicitly tentative and require instructor verification. The instructor can review the original video alongside the evidence.
