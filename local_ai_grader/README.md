@@ -11,7 +11,9 @@ This is a first prototype, not a validated grading system.
 
 - It does **not** listen to or interpret vocal tone. Vocal Delivery is intentionally returned as **Not scored**; the instructor must listen and score volume and intonation.
 - A sparse set of still frames cannot establish sustained eye contact, gesture frequency, or behavior between frames. The model must leave Nonverbal Communication unscored if the sampled evidence is insufficient.
-- Speech recognition can make errors. Verify quotations, filler-word claims, and technical vocabulary against the original video.
+- Speech recognition can make errors or omit filler words. Verify quotations, filler-word claims, and technical vocabulary against the original video. Speech-rate estimates based on detected speech segments are approximate.
+- Pitch and intensity statistics are signal-derived indicators only. They are not calibrated to the room, microphone, playback device, or listener; they must not be treated as proof of appropriate volume or effective intonation.
+- Video sampling improves coverage but is not continuous observation. A frame cannot establish sustained eye contact, gesture frequency, or the meaning of a gesture.
 - A transcript cannot establish whether a pause was strategic. The model is instructed not to label pauses as strategic based on duration alone.
 - Scores are provisional recommendations. The instructor remains responsible for reviewing evidence and assigning the final score.
 - Local model output can vary. Do not use scores without checking the cited evidence.
