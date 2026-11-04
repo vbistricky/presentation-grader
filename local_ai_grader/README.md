@@ -1,22 +1,44 @@
 # Local AI Grader (free, local processing)
 
-This is an experimental companion application for Presentation Grader. It runs on the instructor's computer and does not upload the presentation to a hosted AI service. It uses:
-- **faster-whisper** locally to create a timestamped transcript.
-- **Ollama** locally for text-based rubric analysis and image-based observations.
-- **FFmpeg** and OpenCV locally to extract audio and a small sample of video frames.
+This is an experimental companion application for Presentation Grader. It runs on the instructor's computer and processes presentation media locally. It uses:
 
-## Important limitations
+- **faster-whisper** to create timestamped speech transcripts.
+- **Praat/Parselmouth** to measure pitch and relative-intensity contours across the recording and within recognized speech segments.
+- **MediaPipe Pose and Hands** to track visible body and hand landmarks throughout the full video at a configurable sampling rate (default 5 observations per second).
+- **OpenCV and FFmpeg** for video and audio processing.
+- **Ollama** for local rubric reasoning and supplementary visual descriptions from selected video frames.
 
-This is a first prototype, not a validated grading system.
+## What the upgraded analysis measures
 
-- It does **not** listen to or interpret vocal tone. Vocal Delivery is intentionally returned as **Not scored**; the instructor must listen and score volume and intonation.
-- A sparse set of still frames cannot establish sustained eye contact, gesture frequency, or behavior between frames. The model must leave Nonverbal Communication unscored if the sampled evidence is insufficient.
-- Speech recognition can make errors or omit filler words. Verify quotations, filler-word claims, and technical vocabulary against the original video. Speech-rate estimates based on detected speech segments are approximate.
-- Pitch and intensity statistics are signal-derived indicators only. They are not calibrated to the room, microphone, playback device, or listener; they must not be treated as proof of appropriate volume or effective intonation.
-- Video sampling improves coverage but is not continuous observation. A frame cannot establish sustained eye contact, gesture frequency, or the meaning of a gesture.
-- A transcript cannot establish whether a pause was strategic. The model is instructed not to label pauses as strategic based on duration alone.
-- Scores are provisional recommendations. The instructor remains responsible for reviewing evidence and assigning the final score.
-- Local model output can vary. Do not use scores without checking the cited evidence.
+### Audio
+
+The application reports:
+- Overall median fundamental frequency (F0), voiced-frame proportion, and 10th–90th percentile pitch range in semitones.
+- Relative intensity distribution and variation in the recorded audio.
+- Timestamp-aligned pitch range, first-half-to-second-half pitch change, and relative-intensity variation for recognized speech segments.
+- Estimated speaking rates and timestamped gaps between Whisper speech segments.
+
+These are descriptive signal measurements, not direct judgments of presentation quality. Pitch variation does not prove effective emphasis. Intensity is not calibrated sound-pressure level and is affected by microphone distance, gain, compression, and recording conditions. A human listener must still judge whether volume is appropriate and intonation effectively supports the message.
+
+### Body and hand tracking
+
+The application processes frames across the entire video at a selected rate (2–10 frames per second; default 5). It reports:
+- Pose and hand landmark detection coverage.
+- Timestamped hand-position changes and clustered movement intervals.
+- Five-second summaries of hand detection, movement, shoulder-line tilt, and torso lateral-offset proxies.
+- Shoulder-center movement between consecutive observations.
+
+A hand movement detection is not proof of an intentional gesture. Pose geometry does not establish eye contact, audience focus, confidence, engagement, or whether a gesture strategically emphasizes a point. Camera framing, occlusion, lighting, clothing, and angle can reduce tracking reliability. The application therefore does not automatically assign a Nonverbal Communication score from these measurements; the instructor must inspect the original video.
+
+## Important grading safeguards
+
+- **Vocal Delivery remains unscored by the AI.** Acoustic measurements cannot determine perceived room volume or whether intonation is engaging, mannered, defensive, or off-putting. The instructor must listen to the presentation.
+- **Nonverbal Communication remains unscored by the AI.** Tracking provides observable movement evidence, but cannot establish audience focus, eye contact, or the rhetorical meaning of gestures.
+- Speech recognition may misrecognize or omit words and filler words. Verify quotations, filler-word claims, and technical vocabulary against the original video.
+- Whisper segment boundaries are approximate. Gaps are not automatically unplanned pauses, and WPM estimates are not rigid cutoffs.
+- The system does not infer that a pause is strategic based on duration alone.
+- All scores are provisional recommendations. The instructor remains responsible for reviewing the evidence and assigning final scores.
+- This is an experimental, unvalidated system. Check all observations and scoring rationales against the original presentation.
 
 ## Requirements
 
@@ -24,13 +46,13 @@ This is a first prototype, not a validated grading system.
 - Python 3.10 or 3.11 (64-bit).
 - FFmpeg installed and available on PATH.
 - Ollama installed and running: https://ollama.com/
-- A computer with enough RAM for local models. A vision model can require substantial memory; performance depends on hardware.
+- A computer with sufficient RAM and CPU/GPU resources for local speech and vision models. MediaPipe tracking adds CPU work; increasing tracking FPS increases processing time.
 
 ## Install
 
 1. Install Python and FFmpeg.
 2. Install Ollama from https://ollama.com/ and start it.
-3. Open a terminal in this folder and install Python dependencies:
+3. Open a terminal in this folder and install dependencies:
 
    ```bash
    python -m venv .venv
@@ -48,7 +70,7 @@ This is a first prototype, not a validated grading system.
    pip install -r requirements.txt
    ```
 
-4. Download local models (the downloads are large and model requirements vary by computer):
+4. Download local models (downloads are large and model requirements vary by computer):
 
    ```bash
    ollama pull qwen2.5:7b
@@ -61,12 +83,12 @@ This is a first prototype, not a validated grading system.
    streamlit run app.py
    ```
 
-6. Open the local address Streamlit prints (usually http://localhost:8501), upload a video, and run the analysis.
+6. Upload a presentation. The original video preview is available in the app. Select the MediaPipe tracking rate and run the analysis.
 
 ## Privacy and cost
 
-The video, extracted audio, sampled frames, and transcript are processed on the instructor's computer. Ollama runs the models locally. No API key or paid AI service is used by this application. Installing/downloading models requires an internet connection initially; model downloads use disk space. The app does not send presentation content to an external service.
+The video, extracted audio, sampled frames, landmark tracking, and transcript are processed on the instructor's computer. Ollama runs the models locally. No API key or paid AI service is used. Initial software and model downloads require an internet connection and disk space. The app does not send presentation content to a hosted AI service.
 
 ## Output
 
-The app creates a downloadable JSON evaluation. It includes category recommendations, rationale, evidence, confidence, limitations, transcript, and visual observations. The JSON can be retained as a record. Importing these recommendations directly into the hosted evaluation form is a planned integration step.
+The downloadable JSON includes category recommendations, rationale, evidence, confidence, limitations, transcript, timestamped acoustic measurements, speech timing, full-video pose/hand tracking summaries, and supplemental visual observations. The instructor can review the original video alongside the evidence.
