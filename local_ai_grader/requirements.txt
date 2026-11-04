@@ -1,0 +1,5 @@
+streamlit==1.41.1
+faster-whisper==1.1.1
+opencv-python-headless==4.10.0.84
+requests==2.32.3
+numpy==2.1.3
