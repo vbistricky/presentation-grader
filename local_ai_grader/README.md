@@ -41,11 +41,16 @@ A hand movement detection is not proof of an intentional gesture. Pose geometry 
 - All scores are provisional recommendations. The instructor remains responsible for reviewing the evidence and assigning final scores.
 - This is an experimental, unvalidated system. Check all observations and scoring rationales against the original presentation.
 
-## Windows desktop installer
+## Windows desktop installer and portable package
 
-A Windows x64 installer is built automatically by the GitHub Actions workflow **Build Windows desktop installer**. Run it manually from the repository's Actions tab to create a downloadable installer artifact, or publish a Git tag beginning with `v` to attach the installer to a GitHub Release.
+The **Build Windows desktop installer** GitHub Actions workflow creates two Windows x64 downloads:
 
-The Windows installer bundles an isolated Python runtime, the application dependencies, and FFmpeg. It does not require the instructor to install Python, pip, FFmpeg, or configure a virtual environment. On first launch, the launcher automatically downloads and installs Ollama from its official Windows distribution, starts its local service, and downloads the two configured local models (`qwen2.5:7b` and `qwen2.5vl:7b`). The faster-whisper speech model is downloaded automatically the first time speech recognition is run. These first-run downloads require an internet connection and several GB of additional disk space; the AI models can require many more GB depending on the model versions.
+- **Installer:** `PresentationGraderSetup-Windows-x64.exe` — installs Presentation Grader under the current user's `%LOCALAPPDATA%\\Programs` folder. The Inno Setup package is configured for per-user installation (`PrivilegesRequired=lowest`), not a machine-wide install.
+- **Portable package:** `PresentationGrader-Portable-Windows-x64.zip` — extract the ZIP to a folder the user can write to (for example, Documents or Downloads), then run `Launch Presentation Grader.bat`. No Presentation Grader installer is needed.
+
+Both packages include an isolated Python runtime, application dependencies, and FFmpeg. Neither requires the instructor to separately install Python, pip, FFmpeg, or configure a virtual environment. On first launch, the launcher downloads and installs Ollama into the current user's `%LOCALAPPDATA%\\Programs\\Ollama` folder, starts its local service, and downloads the two configured local models (`qwen2.5:7b` and `qwen2.5vl:7b`). Ollama's official Windows documentation states that its installer installs in the user's home directory and does not require Administrator rights. The faster-whisper speech model is downloaded automatically the first time speech recognition is run.
+
+The first run requires an internet connection and several GB of additional disk space; the AI models can require many more GB depending on model versions. The portable ZIP avoids installing Presentation Grader itself, but it does not eliminate the separate Ollama and model downloads. University device-management policies may still block running downloaded applications, installing Ollama, or downloading large model files; this package does not bypass those restrictions.
 
 ### Built-in application updates
 
