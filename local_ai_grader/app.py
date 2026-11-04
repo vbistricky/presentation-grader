@@ -196,19 +196,24 @@ STRICT RULES:
 def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict):
     visual_notes = "No usable video frames were extracted."
     if images:
-        visual_messages = [{
-            "role": "user",
-            "content": (
-                "Review these presentation frames in chronological order. Image timestamps, in image order: "
-                + ", ".join(f"{x['time']:.1f}s" for x in images)
-                + ". For each frame describe only clearly visible position, body orientation, posture, and hand/arm position. "
-                "Do not infer eye contact, intent, engagement, confidence, strategic emphasis, gesture frequency, or behavior between frames. "
-                "Do not interpret a still pose as a gesture. State when the speaker is too small, obscured, off-camera, or inconclusive. "
-                "Separate observations by timestamp."
-            ),
-            "images": [x["base64"] for x in images]
-        }]
-        visual_notes = ollama_chat(vision_model, visual_messages)
+        observations = []
+        # Small chronological batches reduce vision-context pressure and preserve timestamp-to-frame correspondence.
+        for offset in range(0, len(images), 6):
+            batch = images[offset:offset + 6]
+            visual_messages = [{
+                "role": "user",
+                "content": (
+                    "Review these presentation frames in chronological order. Image timestamps, in image order: "
+                    + ", ".join(f"{x['time']:.1f}s" for x in batch)
+                    + ". For each frame describe only clearly visible position, body orientation, posture, and hand/arm position. "
+                    "Do not infer eye contact, intent, engagement, confidence, strategic emphasis, gesture frequency, or behavior between frames. "
+                    "Do not interpret a still pose as a gesture. State when the speaker is too small, obscured, off-camera, or inconclusive. "
+                    "Separate observations by timestamp."
+                ),
+                "images": [x["base64"] for x in batch]
+            }]
+            observations.append(ollama_chat(vision_model, visual_messages))
+        visual_notes = "\\n".join(observations)
     speech_metrics = speech_statistics(segments, duration)
     prompt = rubric_prompt(transcript, duration, speech_metrics, audio_metrics, visual_notes)
     raw = ollama_chat(text_model, [{"role": "user", "content": prompt}])
