@@ -137,17 +137,18 @@ STRICT RULES:
 - Transcript-based claims must be described as transcript evidence; note likely recognition uncertainty.
 - For Fluency, use both WPM measures and explain that segment-based WPM is approximate. Do not treat 150 WPM as a rigid cutoff. Mention filler words only when clearly present in the transcript; transcription can omit or hallucinate them. Segment gaps are not proof that a pause was unplanned. Never call a pause strategic unless rhetorical context clearly supports emphasis; otherwise describe it neutrally.
 - For Word Choice, cite exact transcript phrases. Distinguish specialized vocabulary used precisely from unexplained jargon. Do not claim a technical term is incorrect unless the transcript and context support that conclusion. Flag uncertainty when topic context is missing.
-- For Vocal Delivery, use the pitch and relative-intensity contours to describe measurable variation and cite relevant segments/times. These measures do not establish effective intonation or appropriate perceived volume. Do not infer emotion, confidence, engagement, or perceived loudness. Return score null; explain what the instructor should listen for in the original video.
-- For Nonverbal Communication, use continuous landmark tracking to report only measurable body/hand movement, detection coverage, posture proxies, and timestamped movement intervals. Movement detections are not proof of intentional gestures. The system cannot establish eye contact, audience focus, gesture meaning, or strategic use. Do not assign a numeric score; return null and identify what an instructor must inspect in the original video.
+- For Vocal Delivery, provide a BEST-FIT TENTATIVE score from 1–4 whenever the recording contains usable speech and acoustic evidence. Use pitch variation, relative-intensity variation, segment-level contours, and transcript context to make a cautious estimate of the observable delivery pattern. Explain exactly which evidence supports the estimate and which rubric elements remain uncertain. Acoustic measurements do not establish effective intonation, appropriate perceived volume, or whether the speaker sounds defensive/off-putting; never claim that they do. Do not infer emotion, confidence, or engagement. Use low confidence when the score relies mainly on acoustic proxies. Return null only if the audio is missing, unusable, or too incomplete to support even a cautious estimate.
+- For Nonverbal Communication, provide a BEST-FIT TENTATIVE score from 1–4 whenever there is sufficient visible speaker evidence. Use full-video sampled landmark tracking, detection coverage, timestamped movement intervals, posture proxies, and timestamped frame observations. Distinguish visible orientation and movement from interpretations of intent. Movement detections are not proof of intentional gestures. The system cannot reliably establish eye contact, audience focus, gesture meaning, or strategic emphasis; explicitly identify these uncertainties and do not pretend they were observed. Use low confidence when camera framing, occlusion, sparse frame samples, or weak detection coverage limit the estimate. Return null only if the speaker is not sufficiently visible or the visual evidence is otherwise too incomplete/unreliable to support even a cautious estimate.
+- For both categories, do not automatically abstain merely because some rubric dimensions cannot be measured. Select the closest-supported rubric level as a tentative recommendation, explain why it is the best fit, and explain why the nearest adjacent level is less supported. Clearly state which criteria require instructor verification from the original presentation.
 - Tracking is sampled at a regular frame rate, not every frame. Do not claim continuous observation between tracking samples.
-- Do not force a score. Use null when evidence is insufficient. Scores are provisional recommendations, not final grades.
+- Scores are tentative recommendations, not final grades. For Vocal Delivery and Nonverbal Communication, make a best-fit 1–4 estimate whenever usable evidence exists, even though some rubric dimensions cannot be verified automatically. Use null only when the relevant media evidence is genuinely insufficient or unusable. State uncertainty and identify the exact criteria needing instructor verification.
 - For each numeric score, justify why that level fits and why the nearest adjacent level is not better supported.
 - Output ONLY valid JSON in this exact shape:
 {{
  "categories": {{
-  "Vocal Delivery": {{"score": null, "confidence": "low|medium|high", "rationale": "...", "evidence": ["..."], "adjacent_level_reasoning": "...", "limitations": "..."}},
+  "Vocal Delivery": {{"score": 1, "confidence": "low|medium|high", "rationale": "...", "evidence": ["..."], "adjacent_level_reasoning": "...", "limitations": "..."}},
   "Fluency": {{"score": 1, "confidence": "low|medium|high", "rationale": "...", "evidence": ["..."], "adjacent_level_reasoning": "...", "limitations": "..."}},
-  "Nonverbal Communication": {{"score": null, "confidence": "low|medium|high", "rationale": "...", "evidence": ["..."], "adjacent_level_reasoning": "...", "limitations": "..."}},
+  "Nonverbal Communication": {{"score": 1, "confidence": "low|medium|high", "rationale": "...", "evidence": ["..."], "adjacent_level_reasoning": "...", "limitations": "..."}},
   "Word Choice": {{"score": 1, "confidence": "low|medium|high", "rationale": "...", "evidence": ["..."], "adjacent_level_reasoning": "...", "limitations": "..."}}
  }},
  "strengths": ["..."],
@@ -248,12 +249,12 @@ if video and st.button("Analyze presentation", type="primary"):
 
 if "result" in st.session_state:
     result = st.session_state["result"]
-    st.subheader("Provisional rubric recommendations")
+    st.subheader("Tentative rubric recommendations")
     categories = result.get("categories", {})
     for name in RUBRIC:
         item = categories.get(name, {})
         score = item.get("score")
-        st.markdown(f"### {name} — {'Not scored' if score is None else f'{score} / 4'}")
+        st.markdown(f"### {name} — {'Unable to estimate' if score is None else f'{score} / 4 · tentative'}")
         st.caption(f"Confidence: {item.get('confidence', 'not stated')}")
         st.write(item.get("rationale", "No rationale returned."))
         if item.get("evidence"):
