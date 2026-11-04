@@ -198,7 +198,7 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
     return json_from_text(raw), visual_notes, speech_motion_alignment
 
 st.title("Presentation Grader — Local AI")
-st.caption("Local processing prototype · student video and transcript stay on this computer")
+st.caption("Local processing · student video and transcript stay on this computer · application code checks for verified updates at startup")
 st.warning(
     "This is an instructor-assistance tool, not an autonomous or validated grading authority. "
     "It extracts timestamped acoustic features and tracks pose/hand landmarks throughout the video at a configurable sampling rate. "
