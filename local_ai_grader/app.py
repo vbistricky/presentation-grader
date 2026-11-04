@@ -149,7 +149,7 @@ def extract_media(video_path: str, work: Path, sample_count: int = 24):
             cap.set(cv2.CAP_PROP_POS_MSEC, sec * 1000)
             ok, frame = cap.read()
             if ok:
-                frame = cv2.resize(frame, (min(768, frame.shape[1]), int(frame.shape[0] * min(768, frame.shape[1]) / frame.shape[1])))
+                frame = cv2.resize(frame, (min(512, frame.shape[1]), int(frame.shape[0] * min(768, frame.shape[1]) / frame.shape[1])))
                 ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 72])
                 if ok:
                     images.append({"time": round(sec, 1), "base64": base64.b64encode(encoded).decode("ascii")})
@@ -233,8 +233,8 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
     if images:
         observations = []
         # Small chronological batches reduce vision-context pressure and preserve timestamp-to-frame correspondence.
-        for offset in range(0, len(images), 6):
-            batch = images[offset:offset + 6]
+        for offset in range(0, len(images), 2):
+            batch = images[offset:offset + 2]
             visual_messages = [{
                 "role": "user",
                 "content": (
