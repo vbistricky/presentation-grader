@@ -55,12 +55,15 @@ RUBRIC = {
     }
 }
 
-def ollama_chat(model: str, messages: list[dict], timeout: int = 900) -> str:
+def ollama_chat(model: str, messages: list[dict], timeout: int = 900, num_ctx: int | None = None) -> str:
     """Call Ollama and preserve its detailed error response for troubleshooting."""
+    options = {"temperature": 0.1}
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
     try:
         response = requests.post(
             "http://127.0.0.1:11434/api/chat",
-            json={"model": model, "messages": messages, "stream": False, "options": {"temperature": 0.1}},
+            json={"model": model, "messages": messages, "stream": False, "options": options},
             timeout=timeout,
         )
     except requests.RequestException as exc:
@@ -149,7 +152,9 @@ def extract_media(video_path: str, work: Path, sample_count: int = 24):
             cap.set(cv2.CAP_PROP_POS_MSEC, sec * 1000)
             ok, frame = cap.read()
             if ok:
-                frame = cv2.resize(frame, (min(512, frame.shape[1]), int(frame.shape[0] * min(768, frame.shape[1]) / frame.shape[1])))
+                scale = min(1.0, 384.0 / max(frame.shape[:2]))
+                if scale < 1.0:
+                    frame = cv2.resize(frame, (int(frame.shape[1] * scale), int(frame.shape[0] * scale)))
                 ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 72])
                 if ok:
                     images.append({"time": round(sec, 1), "base64": base64.b64encode(encoded).decode("ascii")})
@@ -233,8 +238,8 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
     if images:
         observations = []
         # Small chronological batches reduce vision-context pressure and preserve timestamp-to-frame correspondence.
-        for offset in range(0, len(images), 2):
-            batch = images[offset:offset + 2]
+        for offset in range(0, len(images), 1):
+            batch = images[offset:offset + 1]
             visual_messages = [{
                 "role": "user",
                 "content": (
@@ -247,7 +252,7 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
                 ),
                 "images": [x["base64"] for x in batch]
             }]
-            observations.append(ollama_chat(vision_model, visual_messages))
+            observations.append(ollama_chat(vision_model, visual_messages, num_ctx=8192))
         visual_notes = "\n".join(observations)
     speech_metrics = speech_statistics(segments, duration)
     speech_motion_alignment = align_speech_and_motion(audio_metrics, visual_tracking)
