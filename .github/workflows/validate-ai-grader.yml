@@ -35,3 +35,6 @@ jobs:
       - name: Verify analysis modules import
         working-directory: local_ai_grader
         run: python -c "import media_analysis; print('Media analysis dependencies imported successfully')"
+      - name: Run media analysis unit tests
+        working-directory: local_ai_grader
+        run: python -m unittest discover -p "test_*.py" -v
