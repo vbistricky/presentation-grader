@@ -56,13 +56,33 @@ RUBRIC = {
 }
 
 def ollama_chat(model: str, messages: list[dict], timeout: int = 900) -> str:
-    response = requests.post(
-        "http://127.0.0.1:11434/api/chat",
-        json={"model": model, "messages": messages, "stream": False, "options": {"temperature": 0.1}},
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    return response.json()["message"]["content"]
+    """Call Ollama and preserve its detailed error response for troubleshooting."""
+    try:
+        response = requests.post(
+            "http://127.0.0.1:11434/api/chat",
+            json={"model": model, "messages": messages, "stream": False, "options": {"temperature": 0.1}},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not contact Ollama for model '{model}': {exc}") from exc
+
+    if not response.ok:
+        detail = (response.text or response.reason or "No error details returned by Ollama").strip()
+        if len(detail) > 3000:
+            detail = detail[:3000] + "…"
+        raise RuntimeError(
+            f"Ollama rejected the request for model '{model}' "
+            f"(HTTP {response.status_code}): {detail}"
+        )
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError(f"Ollama returned invalid JSON for model '{model}': {response.text[:1000]}") from exc
+
+    if "message" not in payload or "content" not in payload["message"]:
+        raise RuntimeError(f"Ollama response for model '{model}' did not contain message content: {str(payload)[:1000]}")
+    return payload["message"]["content"]
 
 def ensure_ollama_model(model: str) -> None:
     """Download a selected local model on demand, with visible pull progress."""
