@@ -1,0 +1,110 @@
+name: Build Windows desktop installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.9"
+          architecture: "x64"
+
+      - name: Prepare package folders
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/package/python/Lib/site-packages | Out-Null
+          New-Item -ItemType Directory -Force -Path build/package/local_ai_grader | Out-Null
+
+      - name: Install application dependencies into the bundled runtime
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --prefer-binary --no-compile --target build/package/python/Lib/site-packages -r local_ai_grader/requirements.txt
+
+      - name: Download and configure the embedded Python runtime
+        shell: pwsh
+        run: |
+          $url = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile python-embed.zip
+          Expand-Archive -Path python-embed.zip -DestinationPath build/package/python -Force
+          @"
+          python311.zip
+          .
+          Lib\site-packages
+          import site
+          "@ | Set-Content -Path build/package/python/python311._pth -Encoding ascii
+
+      - name: Copy application files
+        shell: pwsh
+        run: |
+          Copy-Item local_ai_grader/app.py build/package/local_ai_grader/app.py
+          Copy-Item local_ai_grader/media_analysis.py build/package/local_ai_grader/media_analysis.py
+          Copy-Item local_ai_grader/launcher.py build/package/launcher.py
+          Copy-Item local_ai_grader/Launch-Presentation-Grader.bat "build/package/Launch Presentation Grader.bat"
+          @"
+          Presentation Grader - third-party notices
+
+          Python 3.11.9 embedded distribution:
+          https://www.python.org/downloads/release/python-3119/
+
+          Application Python dependencies are listed in the source repository:
+          https://github.com/vbistricky/presentation-grader/blob/main/local_ai_grader/requirements.txt
+
+          FFmpeg is supplied by the imageio-ffmpeg package. FFmpeg is a separate
+          open-source project; see https://ffmpeg.org/legal.html and the imageio-ffmpeg
+          project documentation for applicable license and source information.
+
+          Ollama is downloaded from its official distribution endpoint at first launch:
+          https://ollama.com/download/windows
+
+          AI model weights are downloaded directly through Ollama at first launch.
+          Each model is subject to its own license and terms; see the model pages on
+          https://ollama.com/library before use.
+          "@ | Set-Content -Path build/package/THIRD-PARTY-NOTICES.txt -Encoding utf8
+
+      - name: Smoke-test bundled Python and application imports
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "$PWD\build\package\python\Lib\site-packages"
+          python -m py_compile local_ai_grader/app.py local_ai_grader/media_analysis.py local_ai_grader/launcher.py
+          python -m unittest discover -s local_ai_grader -p "test_*.py" -v
+          & "$PWD\build\package\python\python.exe" -c "import streamlit, cv2, mediapipe, faster_whisper, parselmouth, imageio_ffmpeg; print('Bundled imports OK')"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DSourceDir="build\package" installer\windows\PresentationGrader.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed." }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PresentationGrader-Windows-x64
+          path: dist/PresentationGraderSetup-Windows-x64.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach installer to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PresentationGraderSetup-Windows-x64.exe
