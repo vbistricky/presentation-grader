@@ -3,6 +3,7 @@ name: Build Windows desktop installer
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - "v*"
 
