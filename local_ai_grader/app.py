@@ -11,7 +11,7 @@ import cv2
 import requests
 import streamlit as st
 from faster_whisper import WhisperModel
-from media_analysis import analyze_audio, speech_statistics, track_body_and_hands
+from media_analysis import analyze_audio, align_speech_and_motion, speech_statistics, track_body_and_hands
 
 st.set_page_config(page_title="Presentation Grader — Local AI", page_icon="🎓", layout="wide")
 
@@ -104,7 +104,7 @@ def json_from_text(text: str):
         raise ValueError("The local model did not return valid JSON. Try again or use a different model.")
     return json.loads(match.group(0))
 
-def rubric_prompt(transcript: str, duration: float, speech_metrics: dict, audio_metrics: dict, visual_tracking: dict, vision_notes: str):
+def rubric_prompt(transcript: str, duration: float, speech_metrics: dict, audio_metrics: dict, visual_tracking: dict, speech_motion_alignment: list[dict], vision_notes: str):
     levels = "\n".join(
         f"{name}:\n" + "\n".join(f"Level {n}: {desc}" for n, desc in item["levels"].items())
         for name, item in RUBRIC.items()
@@ -123,7 +123,11 @@ Timestamped speech recognition transcript (may contain recognition errors):
 {transcript[:24000]}
 
 CONTINUOUS BODY/HAND LANDMARK TRACKING ACROSS THE PRESENTATION:
-{json.dumps(visual_tracking, indent=2)[:18000]}
+{json.dumps(visual_tracking, indent=2)[:14000]}
+
+TIME-ALIGNED SPEECH, ACOUSTIC, AND HAND-MOVEMENT OBSERVATIONS:
+{json.dumps(speech_motion_alignment, indent=2)[:10000]}
+Temporal overlap is descriptive only; do not infer that a movement was intentional or emphasized the words.
 
 SUPPLEMENTAL VISION-MODEL NOTES FROM SPARSE IMAGE SAMPLES:
 {vision_notes}
@@ -173,11 +177,12 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
                 "images": [x["base64"] for x in batch]
             }]
             observations.append(ollama_chat(vision_model, visual_messages))
-        visual_notes = "\\n".join(observations)
+        visual_notes = "\n".join(observations)
     speech_metrics = speech_statistics(segments, duration)
-    prompt = rubric_prompt(transcript, duration, speech_metrics, audio_metrics, visual_tracking, visual_notes)
+    speech_motion_alignment = align_speech_and_motion(audio_metrics, visual_tracking)
+    prompt = rubric_prompt(transcript, duration, speech_metrics, audio_metrics, visual_tracking, speech_motion_alignment, visual_notes)
     raw = ollama_chat(text_model, [{"role": "user", "content": prompt}])
-    return json_from_text(raw), visual_notes
+    return json_from_text(raw), visual_notes, speech_motion_alignment
 
 st.title("Presentation Grader — Local AI")
 st.caption("Local processing prototype · student video and transcript stay on this computer")
@@ -220,11 +225,12 @@ if video and st.button("Analyze presentation", type="primary"):
                 visual_tracking = track_body_and_hands(str(video_path), target_fps=float(tracking_fps))
                 st.write(f"Tracked {visual_tracking.get('observations', 0)} time points; pose landmarks detected in {visual_tracking.get('pose_landmark_detection_percent', 0)}% of samples; hands detected in {visual_tracking.get('hand_detection_percent', 0)}%.")
                 status.update(label="Running local rubric analysis…")
-                result, visual_notes = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking)
+                result, visual_notes, speech_motion_alignment = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking)
                 status.update(label="Analysis complete", state="complete")
             result["transcript"] = transcript
             result["visual_observations"] = visual_notes
             result["body_hand_tracking"] = visual_tracking
+            result["speech_motion_alignment"] = speech_motion_alignment
             result["audio_measurements"] = audio_metrics
             result["speech_timing_metrics"] = speech_statistics(segments, duration)
             result["video_duration_seconds"] = duration
@@ -282,6 +288,8 @@ if "result" in st.session_state:
         st.markdown("**Speech timing**")
         st.json(result.get("speech_timing_metrics", {}))
         st.text_area("Transcript", result.get("transcript", ""), height=260)
+        st.markdown("**Speech and hand-movement timing alignment**")
+        st.json(result.get("speech_motion_alignment", []))
         st.markdown("**Full-presentation pose and hand tracking**")
         st.json(result.get("body_hand_tracking", {}))
         st.markdown("**Supplemental sampled-frame observations**")
