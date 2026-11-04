@@ -41,9 +41,19 @@ A hand movement detection is not proof of an intentional gesture. Pose geometry 
 - All scores are provisional recommendations. The instructor remains responsible for reviewing the evidence and assigning final scores.
 - This is an experimental, unvalidated system. Check all observations and scoring rationales against the original presentation.
 
-## Requirements
+## Windows desktop installer
 
-- Windows 10/11, macOS, or Linux.
+A Windows x64 installer is built automatically by the GitHub Actions workflow **Build Windows desktop installer**. Run it manually from the repository's Actions tab to create a downloadable installer artifact, or publish a Git tag beginning with `v` to attach the installer to a GitHub Release.
+
+The Windows installer bundles an isolated Python runtime, the application dependencies, and FFmpeg. It does not require the instructor to install Python, pip, FFmpeg, or configure a virtual environment. On first launch, the launcher automatically downloads and installs Ollama from its official Windows distribution, starts its local service, and downloads the two configured local models (`qwen2.5:7b` and `qwen2.5vl:7b`). The faster-whisper speech model is downloaded automatically the first time speech recognition is run. These first-run downloads require an internet connection and several GB of additional disk space; the AI models can require many more GB depending on the model versions.
+
+The app runs in the instructor's browser but the processing and model inference run locally. A console window remains available during first-run setup so model-download progress and errors are visible. Logs are stored under `%LOCALAPPDATA%\\PresentationGrader\\logs`.
+
+## Development requirements
+
+For running from source instead of using the Windows installer:
+
+- Windows 10 22H2 or newer, macOS, or Linux.
 - Python 3.10 or 3.11 (64-bit).
 - FFmpeg installed and available on PATH.
 - Ollama installed and running: https://ollama.com/
