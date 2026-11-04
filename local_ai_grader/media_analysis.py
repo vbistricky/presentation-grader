@@ -332,9 +332,9 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
             pose_rate = sum(bool(o["pose"]["visible"]) for o in subset) / len(subset)
             hand_rate = sum(o["hand_count"] > 0 for o in subset) / len(subset)
             motion_rate = sum(o["hand_motion_detected"] for o in subset) / len(subset)
-            tilt = [o["pose"]["shoulder_line_tilt_degrees"] for o in subset if o["pose"]["shoulder_line_tilt_degrees"] is not None]
-            torso = [o["pose"]["torso_lateral_offset_over_torso_height"] for o in subset if o["pose"]["torso_lateral_offset_over_torso_height"] is not None]
-            head_offset = [o["pose"]["nose_offset_from_shoulder_center_in_shoulder_widths"] for o in subset if o["pose"]["nose_offset_from_shoulder_center_in_shoulder_widths"] is not None]
+            tilt = [o["pose"].get("shoulder_line_tilt_degrees") for o in subset if o["pose"].get("shoulder_line_tilt_degrees") is not None]
+            torso = [o["pose"].get("torso_lateral_offset_over_torso_height") for o in subset if o["pose"].get("torso_lateral_offset_over_torso_height") is not None]
+            head_offset = [o["pose"].get("nose_offset_from_shoulder_center_in_shoulder_widths") for o in subset if o["pose"].get("nose_offset_from_shoulder_center_in_shoulder_widths") is not None]
             body_shift = [o["shoulder_center_shift_since_previous_observation"] for o in subset if o["shoulder_center_shift_since_previous_observation"] is not None]
             windows.append({
                 "start_seconds": round(cursor, 1),
