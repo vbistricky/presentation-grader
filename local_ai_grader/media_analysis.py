@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import re
-from collections import defaultdict
 from pathlib import Path
 
 import cv2
@@ -221,7 +220,7 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
             model_complexity=1,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
-        ) as hands:
+        ) as hands_processor:
             while True:
                 ok, frame = cap.read()
                 if not ok:
@@ -241,7 +240,7 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 rgb.flags.writeable = False
                 pose_result = pose.process(rgb)
-                hand_result = hands.process(rgb)
+                hand_result = hands_processor.process(rgb)
 
                 pose_data = {"visible": False}
                 shoulder_center = None
@@ -285,8 +284,8 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
                         "torso_lateral_offset_over_torso_height": round(torso_lean, 2) if torso_lean is not None else None
                     }
 
-                hands = _hand_centers(hand_result)
-                displacements = _match_hand_displacements(previous_hands, hands)
+                hand_centers = _hand_centers(hand_result)
+                displacements = _match_hand_displacements(previous_hands, hand_centers)
                 max_displacement = max(displacements) if displacements else 0.0
                 hand_motion = bool(displacements and max_displacement >= 0.018)
                 body_shift = (
@@ -301,12 +300,12 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
                 observations.append({
                     "time_seconds": round(timestamp, 2),
                     "pose": pose_data,
-                    "hand_count": len(hands),
+                    "hand_count": len(hand_centers),
                     "hand_motion_detected": hand_motion,
                     "max_normalized_hand_displacement_since_previous_observation": round(max_displacement, 3),
                     "shoulder_center_shift_since_previous_observation": round(body_shift, 3) if body_shift is not None else None
                 })
-                previous_hands = hands
+                previous_hands = hand_centers
                 previous_shoulder_center = shoulder_center
 
     finally:
@@ -359,7 +358,6 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
             previous = timestamp
         events.append({"start_seconds": round(start, 2), "end_seconds": round(previous, 2)})
 
-    paired = max(1, sum(1 for o in observations if o["max_normalized_hand_displacement_since_previous_observation"] > 0))
     return {
         "tracking_fps": target_fps,
         "duration_seconds": round(duration, 2),
