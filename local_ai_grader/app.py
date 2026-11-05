@@ -243,29 +243,56 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
     visual_notes = "No usable video frames were extracted."
     if images:
         observations = []
-        # Small chronological batches reduce vision-context pressure and preserve timestamp-to-frame correspondence.
-        for offset in range(0, len(images), 1):
-            batch = images[offset:offset + 1]
-            visual_messages = [{
-                "role": "user",
-                "content": (
-                    "Review these presentation frames in chronological order. Image timestamps, in image order: "
-                    + ", ".join(f"{x['time']:.1f}s" for x in batch)
-                    + ". For each frame describe only clearly visible position, body orientation, posture, and hand/arm position. "
-                    "Do not infer eye contact, intent, engagement, confidence, strategic emphasis, gesture frequency, or behavior between frames. "
-                    "Do not interpret a still pose as a gesture. State when the speaker is too small, obscured, off-camera, or inconclusive. "
-                    "Separate observations by timestamp."
-                ),
-                "images": [x["base64"] for x in batch]
-            }]
-            observations.append(ollama_chat(vision_model, visual_messages, num_ctx=8192))
+        for image in images:
+            msg = {"role": "user", "content": f"At {image['time']:.1f}s, describe only visible speaker posture, body orientation and hand/arm position. Do not infer eye contact, intent, engagement, gesture meaning or behavior between frames. State if inconclusive.", "images": [image["base64"]]}
+            observations.append(ollama_chat(vision_model, [msg], num_ctx=8192))
         visual_notes = "\n".join(observations)
     speech_metrics = speech_statistics(segments, duration)
-    speech_motion_alignment = align_speech_and_motion(audio_metrics, visual_tracking)
-    prompt = rubric_prompt(transcript, duration, speech_metrics, audio_metrics, visual_tracking, speech_motion_alignment, visual_notes)
-    raw = ollama_chat(text_model, [{"role": "user", "content": prompt}])
-    return json_from_text(raw), visual_notes, speech_motion_alignment
-
+    alignment = align_speech_and_motion(audio_metrics, visual_tracking)
+    categories = {}
+    for name, rubric in RUBRIC.items():
+        if name in ("Fluency", "Word Choice"):
+            evidence = {"transcript": transcript[:18000], "speech_metrics": speech_metrics}
+            has_evidence = bool(transcript.strip()) and speech_metrics.get("transcript_word_count", 0) > 0
+        elif name == "Vocal Delivery":
+            evidence = {"acoustic_measurements": audio_metrics, "transcript_context": transcript[:5000]}
+            has_evidence = bool(audio_metrics.get("segment_features")) or any(audio_metrics.get(k) is not None for k in ("pitch_median_hz", "pitch_10_to_90_range_semitones", "relative_intensity_median_db"))
+        else:
+            evidence = {"body_hand_tracking": visual_tracking, "sampled_frame_observations": visual_notes, "speech_motion_alignment": alignment}
+            has_evidence = visual_tracking.get("observations", 0) > 0 or (bool(images) and bool(visual_notes.strip()))
+        levels = "\n".join(f"Level {n}: {desc}" for n, desc in rubric["levels"].items())
+        prompt = f"""Assess ONLY {name} for a university presentation.
+Official rubric ({rubric['sub']}):
+{levels}
+Evidence:
+{json.dumps(evidence, ensure_ascii=False)[:20000]}
+Rules: use only evidence above; score this category independently. The transcript is {"NONEMPTY and contains usable spoken words" if transcript.strip() else "EMPTY"}. Never claim there is no transcript or no speech when it is nonempty. Fluency: use approximate rate/timing cautiously; do not invent stammering or fillers. Word Choice: quote exact transcript phrases. Vocal Delivery: use actual acoustic measurements, but they do not prove perceived loudness or effective intonation. Nonverbal: use only visible tracking/frame observations; transcript availability is irrelevant. Do not infer eye contact, intent, engagement or gesture meaning. Assign 1–4 only when supported by this category's evidence; use null only when genuinely insufficient. Never use 1 or null as a placeholder. Explain why the score fits and why the nearest adjacent level is less supported. Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "rationale":"...", "evidence":["specific evidence"], "adjacent_level_reasoning":"...", "limitations":"..."}}"""
+        item, error = None, ""
+        for attempt in range(2):
+            retry = "" if attempt == 0 else f" Your previous answer failed validation: {error}. Correct it using the supplied evidence; do not invent a score."
+            raw = ollama_chat(text_model, [{"role": "user", "content": prompt + retry}], num_ctx=8192)
+            try:
+                candidate = json_from_text(raw)
+                score = candidate.get("score")
+                bad_score = score is not None and (isinstance(score, bool) or not isinstance(score, int) or score not in (1, 2, 3, 4))
+                fields = " ".join(str(candidate.get(k, "")) for k in ("rationale", "evidence", "adjacent_level_reasoning", "limitations")).lower()
+                contradiction = name in ("Fluency", "Word Choice") and has_evidence and any(x in fields for x in ("no usable speech evidence", "no speech segments", "transcript does not contain", "transcript lacks"))
+                bad_abstention = has_evidence and score is None
+                unsupported_score = not has_evidence and score is not None
+                missing = any(not candidate.get(k) for k in ("rationale", "evidence", "adjacent_level_reasoning", "limitations"))
+                if bad_score or contradiction or bad_abstention or unsupported_score or missing:
+                    error = "response contradicted available evidence, omitted required reasoning, or returned an unsupported score"
+                    continue
+                item = candidate
+                break
+            except (ValueError, json.JSONDecodeError) as exc:
+                error = f"invalid JSON: {exc}"
+        if item is None:
+            item = {"score": None, "confidence": "low", "rationale": "No grade is recommended because the model failed evidence validation.", "evidence": [], "adjacent_level_reasoning": "A defensible adjacent-level comparison was not returned.", "limitations": error or "The model did not return a valid assessment."}
+        categories[name] = item
+    strengths = [f"{n}: {v['rationale']}" for n, v in categories.items() if v.get("score") is not None]
+    improvements = [f"{n}: {v['limitations']}" for n, v in categories.items() if v.get("limitations")]
+    return {"categories": categories, "strengths": strengths[:6], "improvements": improvements[:6], "overall_comments": "Each rubric category was assessed independently. Instructor review is required.", "transcript_language": "See detected language reported during transcription."}, visual_notes, alignment
 st.title("Presentation Grader — Local AI")
 st.caption("Local processing · student video and transcript stay on this computer · application code checks for verified updates at startup")
 st.warning(
@@ -278,6 +305,7 @@ with st.sidebar:
     st.header("Local model settings")
     st.caption("Compact models are selected by default to reduce first-run downloads. Advanced models can be downloaded automatically when selected.")
     text_choices = {
+        "Recommended — Qwen 2.5 7B (about 4.7 GB)": "qwen2.5:7b",
         "Compact — Qwen 2.5 3B (about 1.9 GB)": "qwen2.5:3b",
         "Advanced — Qwen 2.5 7B (about 4.7 GB)": "qwen2.5:7b",
     }
