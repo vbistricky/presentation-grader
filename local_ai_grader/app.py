@@ -58,7 +58,24 @@ RUBRIC = {
 
 GUIDE_ROOT = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share")))
 GUIDE_PATH = GUIDE_ROOT / "PresentationGrader" / "grading_guide.json"
-GUIDE_BASELINE = {"schema_version": 1, "approved_guidelines": [], "borderline_decisions": [], "proposed_refinements": [], "notes": "Supplemental guidance only; official rubric is unchanged."}
+GUIDE_BASELINE = {
+    "schema_version": 1,
+    "guide_title": "Presentation Grader — Instructor Interpretation Guide",
+    "approved_guidelines": [
+        {"id": "evidence-first", "status": "approved", "text": "Every score and factual statement must be supported by observable evidence in this presentation. Do not infer filler words, pauses, eye contact, intent, confidence, audience engagement, or strategic emphasis when the supplied evidence cannot verify them."},
+        {"id": "adjacent-levels", "status": "approved", "text": "For every score, explain why the selected rubric level fits and why the nearest adjacent level is less supported. Explicitly explain borderline decisions rather than treating level descriptions as automatic thresholds."},
+        {"id": "independent-categories", "status": "approved", "text": "Assess each rubric category independently from its own evidence. Missing or weak evidence in one category must not determine another category's score. Do not use Level 1 as a placeholder for uncertainty."},
+        {"id": "acoustic-proxies", "status": "approved", "text": "Pitch and relative-intensity measurements are descriptive proxies. They do not establish perceived room volume, effective intonation, emotional tone, confidence, or audience engagement."},
+        {"id": "visual-proxies", "status": "approved", "text": "Pose and hand tracking and sparse frame descriptions do not establish eye contact, audience focus, intent, gesture meaning, or strategic emphasis. State sampling and detection limitations."},
+        {"id": "transcript-limits", "status": "approved", "text": "Treat speech recognition as fallible. Quote exact transcript wording, qualify transcript-based claims, and do not infer that undetected filler words or pauses were absent. Segment gaps are not proof of unplanned pauses."},
+        {"id": "human-review", "status": "approved", "text": "AI scores are tentative recommendations. Identify criteria that require instructor verification from the original recording."}
+    ],
+    "borderline_decisions": [
+        {"id": "historical-vocal-fluency-example", "status": "instructor-provided-example", "category": ["Vocal Delivery", "Fluency"], "decision": "Instructor preferred Level 2 rather than Level 3 for both categories.", "reported_evidence": "The instructor described a consistently similar tone throughout, excessive volume, pauses the instructor judged strategic, and several filler words.", "interpretation": "A generally understandable presentation may still fit Level 2 when vocal tone is flat or mannered, volume is unsuitable, or occasional filler words/pacing issues are present. Strategic pauses alone do not establish Level 4; cadence and emphasis must also be supported.", "scope_warning": "This is one instructor-described example, not a universal rule or an automatic scoring template. Assess each new presentation from its own evidence."}
+    ],
+    "proposed_refinements": [],
+    "notes": "Supplemental interpretation guidance only; the official Oral Communication Badge Rubric remains unchanged. Prior examples calibrate interpretation but must never predetermine a current score."
+}
 
 def load_grading_guide():
     GUIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
