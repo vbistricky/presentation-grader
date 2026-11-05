@@ -40,7 +40,18 @@ The app maintains an instructor-owned guide at `%LOCALAPPDATA%\\PresentationGrad
 
 Use **AI Grading Guide** in the sidebar to edit the JSON, import a guide, or export it for backup/sharing with other instructors. Only approved guidelines and borderline decisions are included in the grading prompt. The official rubric text remains separate and unchanged. The guide should use anonymized examples and must not contain student-identifying information.
 
-Each category assessment also receives a separate evidence-to-claim audit from the local model. The audit checks factual statements against that category's supplied transcript, acoustic measurements, or visual tracking evidence; it reports unsupported claims, suggested safer corrections, and audit errors in the evaluation. A passing audit does not prove the grade is correct, and a flagged claim still requires instructor review against the original recording. This audit is an additional model review, not a deterministic fact-checker.
+Each category assessment also receives a separate evidence-to-claim audit from the local model. The audit checks factual statements against that category's supplied transcript, acoustic measurements, or visual tracking evidence; it reports unsupported claims, suggested safer corrections, and audit errors in the evaluation. A passing audit does not prove the grade is correct, and a flagged claim still requires instructor review against the original recording. This audit is an additional model review, not a deterministic fact-checker. The audit now checks **category relevance as well as factual support**: a statement can be true but still be invalid evidence for the category being scored. It separately flags category-irrelevant claims, including delivery observations (intonation, tone, volume, pauses, pace, or fillers) used to justify Word Choice. Contamination in the score rationale, evidence, or adjacent-level reasoning triggers an explicit instructor-review warning and lowers confidence; the app does not silently alter the tentative score. The grading prompt applies the same boundaries to strengths and presenter-facing feedback.
+
+## Rubric category boundaries
+
+The four official categories are evaluated independently:
+
+- **Vocal Delivery:** audible volume and intonation used for emphasis.
+- **Fluency:** speech flow, cadence, pace, pauses, stammering, and filler words.
+- **Nonverbal Communication:** observable body language, posture, and gestures; eye contact only when genuinely verifiable.
+- **Word Choice:** vocabulary relevance and precision, correct technical terminology, jargon, plain-language explanation/contextualization, and oversimplification or conceptual distortion caused by word choice.
+
+In particular, intonation, tone, volume, pauses, pace, stammering, and fillers must never be used to justify or penalize Word Choice. The relevance rule applies to scores, rationales, evidence, strengths, presenter feedback, limitations, and adjacent-level reasoning. The official rubric itself is unchanged; these are supplemental interpretation safeguards.
 
 ## Important grading safeguards
 
