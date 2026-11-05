@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -55,7 +56,8 @@ RUBRIC = {
     }
 }
 
-GUIDE_PATH = Path.home() / "AppData" / "Local" / "PresentationGrader" / "grading_guide.json"
+GUIDE_ROOT = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share")))
+GUIDE_PATH = GUIDE_ROOT / "PresentationGrader" / "grading_guide.json"
 GUIDE_BASELINE = {"schema_version": 1, "approved_guidelines": [], "borderline_decisions": [], "proposed_refinements": [], "notes": "Supplemental guidance only; official rubric is unchanged."}
 
 def load_grading_guide():
@@ -458,6 +460,19 @@ if "result" in st.session_state:
             st.markdown(f"**Adjacent-level reasoning:** {item['adjacent_level_reasoning']}")
         if item.get("limitations"):
             st.markdown(f"**Limitations:** {item['limitations']}")
+        audit = item.get("evidence_validation", {})
+        audit_status = audit.get("status", "not run")
+        st.caption(f"Evidence-to-claim validation: {audit_status}")
+        if audit.get("unsupported_claims"):
+            st.warning("Claims the evidence auditor could not verify:")
+            for claim in audit["unsupported_claims"]:
+                st.markdown(f"- {claim}")
+        if audit.get("corrections"):
+            st.markdown("**Suggested evidence-aligned corrections**")
+            for correction in audit["corrections"]:
+                st.markdown(f"- {correction}")
+        if audit.get("error"):
+            st.caption(f"Evidence audit error: {audit['error']}")
     st.markdown("### Strengths")
     for x in result.get("strengths", []):
         st.markdown(f"- {x}")
