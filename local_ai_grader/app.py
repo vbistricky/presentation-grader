@@ -69,6 +69,7 @@ GUIDE_BASELINE = {
         {"id": "visual-proxies", "status": "approved", "text": "Pose and hand tracking and sparse frame descriptions do not establish eye contact, audience focus, intent, gesture meaning, or strategic emphasis. State sampling and detection limitations."},
         {"id": "transcript-limits", "status": "approved", "text": "Treat speech recognition as fallible. Quote exact transcript wording, qualify transcript-based claims, and do not infer that undetected filler words or pauses were absent. Segment gaps are not proof of unplanned pauses."},
         {"id": "human-review", "status": "approved", "text": "AI scores are tentative recommendations. Identify criteria that require instructor verification from the original recording."}
+        ,{"id": "filler-word-context", "status": "approved", "text": "The official Fluency rubric includes filler words at Levels 3, 2, and 1 but does not name specific words. Words such as “like” and “yeah” are not automatically fillers: count an instance only when its audible use is a verbal placeholder or unnecessary habitual discourse marker, not when it has a meaningful grammatical, descriptive, or responsive function. Use the audio and surrounding context to distinguish functions; a transcript alone may be ambiguous or inaccurate. Consider frequency and effect in the full delivery: occasional genuine fillers may align with Level 2 when the other descriptor evidence supports it, while frequent fillers that disrupt cadence or obscure emphasis may align with Level 1. Do not lower a score merely because the words “like” or “yeah” appear in a transcript, and do not treat this note as changing the official rubric."}
     ],
     "borderline_decisions": [
         {"id": "historical-vocal-fluency-example", "status": "instructor-provided-example", "category": ["Vocal Delivery", "Fluency"], "decision": "Instructor preferred Level 2 rather than Level 3 for both categories.", "reported_evidence": "The instructor described a consistently similar tone throughout, excessive volume, pauses the instructor judged strategic, and several filler words.", "interpretation": "This records one instructor judgment based on the combined observations in this particular presentation. Do not generalize it into a rule that any flat-sounding passage, loudness concern, pause, or filler automatically determines a score. For each new presentation, compare the overall observed performance with the full descriptors at the neighboring levels and explain why the identified issue is consequential enough to support the selected level. Strategic pauses alone do not establish Level 4; cadence and emphasis must also be supported.", "scope_warning": "This is one instructor-described example, not a universal rule or an automatic scoring template. Assess each new presentation from its own evidence."}
@@ -88,6 +89,12 @@ def load_grading_guide():
         for key in ("approved_guidelines", "borderline_decisions", "proposed_refinements"):
             if not isinstance(data.get(key, []), list): raise ValueError(key + " must be a list")
             data.setdefault(key, [])
+        # Add newly introduced baseline guidance to existing local guides without
+        # overwriting instructor edits or previously approved decisions.
+        existing_ids = {item.get("id") for item in data["approved_guidelines"] if isinstance(item, dict)}
+        for item in GUIDE_BASELINE["approved_guidelines"]:
+            if item.get("id") not in existing_ids:
+                data["approved_guidelines"].append(item.copy())
         return data
     except Exception as exc:
         st.error(f"Could not read saved guide: {exc}")
