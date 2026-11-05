@@ -396,7 +396,9 @@ with st.sidebar.expander("AI Grading Guide", expanded=False):
     imported_guide = st.file_uploader("Import guide (.json)", type=["json"], key="guide_import")
     if imported_guide is not None and st.button("Import and replace saved guide", key="guide_import_btn"):
         try:
-            save_grading_guide(json.loads(imported_guide.getvalue().decode("utf-8")))
+            imported_data = json.loads(imported_guide.getvalue().decode("utf-8"))
+            save_grading_guide(imported_data)
+            st.session_state["guide_json_editor"] = json.dumps(imported_data, indent=2, ensure_ascii=False)
             st.success("Guide imported; it will be used in the next evaluation.")
             st.rerun()
         except Exception as exc: st.error(f"Import failed: {exc}")
