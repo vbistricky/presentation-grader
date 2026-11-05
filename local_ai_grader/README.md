@@ -28,7 +28,7 @@ The application processes frames across the entire video at a selected rate (2â€
 - Five-second summaries of hand detection, movement, shoulder-line tilt, and torso lateral-offset proxies.
 - Shoulder-center movement between consecutive observations.
 
-A hand movement detection is not proof of an intentional gesture. Pose geometry does not establish eye contact, audience focus, confidence, engagement, or whether a gesture strategically emphasizes a point. Camera framing, occlusion, lighting, clothing, and angle can reduce tracking reliability. The application therefore does not automatically assign a Nonverbal Communication score from these measurements; the instructor must inspect the original video.
+A hand movement detection is not proof of an intentional gesture. Pose geometry does not establish eye contact, audience focus, confidence, engagement, or whether a gesture strategically emphasizes a point. Camera framing, occlusion, lighting, clothing, and angle can reduce tracking reliability. When sufficient visual evidence exists, the application provides a tentative best-fit Nonverbal Communication score with confidence and limitations; the instructor must inspect the original video and confirm it.
 
 ## Instructor AI Grading Guide and evidence audit
 
@@ -41,6 +41,20 @@ The app maintains an instructor-owned guide at `%LOCALAPPDATA%\\PresentationGrad
 Use **AI Grading Guide** in the sidebar to edit the JSON, import a guide, or export it for backup/sharing with other instructors. Only approved guidelines and borderline decisions are included in the grading prompt. The official rubric text remains separate and unchanged. The guide should use anonymized examples and must not contain student-identifying information.
 
 Each category assessment also receives a separate evidence-to-claim audit from the local model. The audit checks factual statements against that category's supplied transcript, acoustic measurements, or visual tracking evidence; it reports unsupported claims, suggested safer corrections, and audit errors in the evaluation. A passing audit does not prove the grade is correct, and a flagged claim still requires instructor review against the original recording. This audit is an additional model review, not a deterministic fact-checker. The audit now checks **category relevance as well as factual support**: a statement can be true but still be invalid evidence for the category being scored. It separately flags category-irrelevant claims, including delivery observations (intonation, tone, volume, pauses, pace, or fillers) used to justify Word Choice. Contamination in the score rationale, evidence, or adjacent-level reasoning triggers an explicit instructor-review warning and lowers confidence; the app does not silently alter the tentative score. The grading prompt applies the same boundaries to strengths and presenter-facing feedback. A deterministic application-side category-boundary check now independently scans each generated category's rationale, evidence, strengths, feedback, adjacent-level reasoning, and limitations. If the first draft crosses a category boundary, the model is asked to rewrite it; if leakage remains, out-of-scope sentences or list items are withheld before display, confidence is lowered, and instructor review is required. The evidence-audit output is also checked so the model cannot mark its own category violation as a pass. This safeguard is separate from the language-model audit and is intended to prevent cross-category content from appearing in student-facing feedback.
+
+## Runtime and inference optimizations
+
+The grading pipeline is optimized to reduce avoidable processing without merging rubric categories or removing the evidence checks:
+
+- **Four separate rubric reasoning requests are retained**â€”one for Vocal Delivery, Fluency, Nonverbal Communication, and Word Choice. Each request receives only evidence relevant to its own category.
+- **Four separate evidence-to-claim audits are retained**, one after each category assessment. These checks are not bypassed to save time.
+- **Visual descriptions are batched three sampled images per vision-model request.** Timestamps and image order are included in each batch, reducing sequential vision-model round trips while retaining the configured image sample count.
+- **Model output lengths are bounded** for category assessments, evidence audits, and visual descriptions to avoid unnecessarily long generations. Invalid or incomplete category responses can still be retried through the existing validation path.
+- **Nonverbal prompts use compact tracking summaries** (five-second windows, movement intervals, detection coverage, and limitations) rather than sending the full raw landmark trace. The complete tracking result remains in the exported evaluation for instructor review.
+- **Word Choice receives transcript evidence only**, rather than unrelated speech-rate and pause metrics.
+- **Landmark tracking retrieves image pixels only at selected sample times** instead of fully retrieving every source frame. The full video is still traversed to maintain the configured sampling schedule.
+
+The default Whisper beam size, image sample count, and landmark tracking rate are not reduced as a shortcut. The main remaining runtime cost is local model inference and the computer's available CPU, RAM, and GPU resources. A compact 3B model can run faster on limited hardware, while a 7B model may provide stronger reasoning at the cost of longer processing time.
 
 ## Rubric category boundaries
 
