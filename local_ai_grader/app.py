@@ -303,6 +303,52 @@ CATEGORY_SCOPE = {
     "Nonverbal Communication": "ONLY observable body language, posture, and gestures; eye contact only when genuinely verifiable. Exclude vocal delivery, fluency, and vocabulary.",
     "Word Choice": "ONLY vocabulary relevance and precision, correct technical terminology, jargon, plain-language explanation/contextualization, and oversimplification or conceptual distortion caused by word choice. NEVER assess intonation, tone, volume, pauses, speech pace, stammering, or fillers."
 }
+CATEGORY_SCOPE_FORBIDDEN = {
+    "Word Choice": r"\b(?:intonation|pitch|prosody|volume|loudness|pauses?|pacing|speech rate|speaking rate|words per minute|wpm|stammer(?:ing)?|fluency|filler words?|verbal fillers?)\b",
+    "Vocal Delivery": r"\b(?:filler words?|verbal fillers?|stammer(?:ing)?|unplanned pauses?|speech rate|speaking rate|words per minute|wpm|jargon|vocabulary|word choice|gestures?|eye contact)\b",
+    "Fluency": r"\b(?:intonation|pitch|prosody|volume|loudness|tone of voice|jargon|vocabulary|word choice|gestures?|eye contact)\b",
+    "Nonverbal Communication": r"\b(?:intonation|pitch|prosody|volume|loudness|tone of voice|filler words?|verbal fillers?|stammer(?:ing)?|unplanned pauses?|speech rate|speaking rate|words per minute|wpm|jargon|vocabulary|word choice)\b"
+}
+
+def category_scope_violations(category, assessment):
+    pattern = re.compile(CATEGORY_SCOPE_FORBIDDEN[category], re.I)
+    fields = ("rationale", "evidence", "positive_observations", "actionable_feedback",
+              "adjacent_level_reasoning", "limitations")
+    violations = []
+    for field in fields:
+        value = assessment.get(field, [])
+        values = value if isinstance(value, list) else [value]
+        if any(isinstance(entry, str) and pattern.search(entry) for entry in values):
+            violations.append(field)
+    return sorted(set(violations))
+
+def remove_out_of_scope_content(category, assessment):
+    pattern = re.compile(CATEGORY_SCOPE_FORBIDDEN[category], re.I)
+    fields = ("rationale", "evidence", "positive_observations", "actionable_feedback",
+              "adjacent_level_reasoning", "limitations")
+    cleaned = dict(assessment)
+    removed = False
+    for field in fields:
+        value = cleaned.get(field)
+        if isinstance(value, list):
+            kept = [entry for entry in value if not (isinstance(entry, str) and pattern.search(entry))]
+            removed = removed or len(kept) != len(value)
+            cleaned[field] = kept
+        elif isinstance(value, str) and pattern.search(value):
+            sentences = re.split(r"(?<=[.!?])\s+", value)
+            replacement = " ".join(sentence for sentence in sentences if not pattern.search(sentence)).strip()
+            removed = removed or replacement != value
+            cleaned[field] = replacement
+    if not cleaned.get("rationale"):
+        cleaned["rationale"] = "The generated rationale included material outside this rubric category and was withheld; instructor review is required."
+    if not cleaned.get("adjacent_level_reasoning"):
+        cleaned["adjacent_level_reasoning"] = "A category-specific adjacent-level comparison could not be retained; instructor review is required."
+    if not cleaned.get("evidence"):
+        cleaned["evidence"] = []
+    if not cleaned.get("limitations"):
+        cleaned["limitations"] = "Some generated content was withheld because it crossed rubric-category boundaries."
+    return cleaned, removed
+
 def validate_category_claims(text_model, category, assessment, evidence):
     prompt = f'''Audit BOTH factual support and rubric-category relevance in this {category} assessment. CATEGORY DEFINITION: {CATEGORY_SCOPE[category]} A claim can be factually true yet irrelevant to this category. Repeated fillers may be supported by a transcript but are NOT Word Choice evidence; intonation/flat tone is NOT Word Choice evidence; vocabulary quality is NOT Fluency evidence. Review rationale, evidence, positive_observations, actionable_feedback, adjacent_level_reasoning, and limitations. Flag category-irrelevant claims separately from unsupported claims. Category contamination in rationale, evidence, or adjacent_level_reasoning is material and requires instructor review of the score. Do not change the score.
 DRAFT: {json.dumps(assessment, ensure_ascii=False)}
@@ -389,15 +435,41 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
                 if bad_score or contradiction or bad_abstention or unsupported_score or missing:
                     error = "response contradicted available evidence, omitted required reasoning, or returned an unsupported score"
                     continue
+                # Deterministic category-boundary check: do not rely on the same
+                # language model to police its own cross-category leakage.
+                scope_violations = category_scope_violations(name, candidate)
+                if scope_violations and attempt == 0:
+                    error = "Your draft included content outside this rubric category. Rewrite every field using only the category scope; do not mention or evaluate other rubric dimensions."
+                    continue
+                candidate, scope_content_removed = remove_out_of_scope_content(name, candidate)
                 try:
-                    candidate["evidence_validation"] = validate_category_claims(text_model, name, candidate, evidence)
-                    if candidate["evidence_validation"].get("score_review_required"):
+                    audit = validate_category_claims(text_model, name, candidate, evidence)
+                    audit_text = json.dumps(audit, ensure_ascii=False)
+                    if re.search(CATEGORY_SCOPE_FORBIDDEN[name], audit_text, re.I):
+                        scope_content_removed = True
+                        audit = {
+                            "status": "revise", "supported_claims": [], "unsupported_claims": [],
+                            "irrelevant_claims": ["The evidence audit returned material outside this rubric category; instructor review is required."],
+                            "corrections": ["Review this category independently against its official descriptor."],
+                            "score_review_required": True
+                        }
+                    candidate["evidence_validation"] = audit
+                    if audit.get("score_review_required"):
                         candidate["score_review_required"] = True
                         candidate["confidence"] = "low"
                 except Exception as audit_exc:
                     candidate["evidence_validation"] = {"status": "review_required", "unsupported_claims": [], "irrelevant_claims": [], "corrections": [], "score_review_required": True, "error": str(audit_exc)}
                     candidate["score_review_required"] = True
                     candidate["confidence"] = "low"
+                if scope_content_removed:
+                    candidate["score_review_required"] = True
+                    candidate["confidence"] = "low"
+                    candidate["evidence_validation"] = {
+                        "status": "revise", "supported_claims": [], "unsupported_claims": [],
+                        "irrelevant_claims": ["Generated content outside this rubric category was removed before display."],
+                        "corrections": ["Review the revised assessment against this category's official descriptor."],
+                        "score_review_required": True
+                    }
                 item = candidate
                 break
             except (ValueError, json.JSONDecodeError) as exc:
