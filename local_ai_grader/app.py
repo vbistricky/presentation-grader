@@ -55,6 +55,37 @@ RUBRIC = {
     }
 }
 
+GUIDE_PATH = Path.home() / "AppData" / "Local" / "PresentationGrader" / "grading_guide.json"
+GUIDE_BASELINE = {"schema_version": 1, "approved_guidelines": [], "borderline_decisions": [], "proposed_refinements": [], "notes": "Supplemental guidance only; official rubric is unchanged."}
+
+def load_grading_guide():
+    GUIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not GUIDE_PATH.exists():
+        GUIDE_PATH.write_text(json.dumps(GUIDE_BASELINE, indent=2), encoding="utf-8")
+    try:
+        data = json.loads(GUIDE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("schema_version") != 1:
+            raise ValueError("Unsupported guide format")
+        for key in ("approved_guidelines", "borderline_decisions", "proposed_refinements"):
+            if not isinstance(data.get(key, []), list): raise ValueError(key + " must be a list")
+            data.setdefault(key, [])
+        return data
+    except Exception as exc:
+        st.error(f"Could not read saved guide: {exc}")
+        return json.loads(json.dumps(GUIDE_BASELINE))
+
+def save_grading_guide(data):
+    if not isinstance(data, dict) or data.get("schema_version") != 1: raise ValueError("Invalid guide schema")
+    for key in ("approved_guidelines", "borderline_decisions", "proposed_refinements"):
+        if not isinstance(data.get(key, []), list): raise ValueError(key + " must be a list")
+    GUIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = GUIDE_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(GUIDE_PATH)
+
+def guide_prompt_context(guide):
+    return json.dumps({"approved_guidelines": guide.get("approved_guidelines", []), "borderline_decisions": guide.get("borderline_decisions", [])}, ensure_ascii=False)[:12000]
+
 def ollama_chat(model: str, messages: list[dict], timeout: int = 900, num_ctx: int | None = None) -> str:
     """Call Ollama and preserve its detailed error response for troubleshooting."""
     options = {"temperature": 0.1}
