@@ -113,11 +113,13 @@ def save_grading_guide(data):
 def guide_prompt_context(guide):
     return json.dumps({"approved_guidelines": guide.get("approved_guidelines", []), "borderline_decisions": guide.get("borderline_decisions", [])}, ensure_ascii=False)[:12000]
 
-def ollama_chat(model: str, messages: list[dict], timeout: int = 900, num_ctx: int | None = None) -> str:
-    """Call Ollama and preserve its detailed error response for troubleshooting."""
+def ollama_chat(model: str, messages: list[dict], timeout: int = 900, num_ctx: int | None = None, num_predict: int | None = None) -> str:
+    """Call Ollama with bounded output to avoid wasting time on overlong generations."""
     options = {"temperature": 0.1}
     if num_ctx is not None:
         options["num_ctx"] = num_ctx
+    if num_predict is not None:
+        options["num_predict"] = num_predict
     try:
         response = requests.post(
             "http://127.0.0.1:11434/api/chat",
@@ -355,33 +357,68 @@ DRAFT: {json.dumps(assessment, ensure_ascii=False)}
 EVIDENCE: {json.dumps(evidence, ensure_ascii=False)[:18000]}
 Flag unsupported inferences, invented quotations, incorrect values, and claims stronger than evidence. Absence of a detected event is not proof it never happened. Acoustic measures do not prove perceived loudness or effective intonation. Tracking does not prove eye contact, intent, audience focus, or strategic gesture meaning. Transcripts may contain recognition errors. Do not change the score.
 Return ONLY JSON with keys status (pass or revise), supported_claims (list), unsupported_claims (list), irrelevant_claims (list), corrections (list), score_review_required (boolean).'''
-    audit = json_from_text(ollama_chat(text_model, [{"role": "user", "content": prompt}], num_ctx=8192))
+    audit = json_from_text(ollama_chat(text_model, [{"role": "user", "content": prompt}], num_ctx=8192, num_predict=400))
     if audit.get("status") not in ("pass", "revise"): raise ValueError("Invalid audit status")
     for key in ("supported_claims", "unsupported_claims", "irrelevant_claims", "corrections"):
         if not isinstance(audit.get(key), list): raise ValueError("Missing audit list: " + key)
     if not isinstance(audit.get("score_review_required"), bool): raise ValueError("Missing score_review_required boolean")
     if audit["unsupported_claims"] or audit["irrelevant_claims"]: audit["status"] = "revise"
     return audit
+def compact_visual_tracking(tracking: dict) -> dict:
+    """Keep grading-relevant summaries while omitting the bulky raw frame-by-frame trace."""
+    keys = (
+        "tracking_fps", "duration_seconds", "observations",
+        "pose_landmark_detection_percent", "hand_detection_percent",
+        "hand_motion_observations", "hand_motion_percent_of_all_observations",
+        "movement_event_count", "summary", "limitations"
+    )
+    compact = {key: tracking[key] for key in keys if key in tracking}
+    compact["movement_events"] = tracking.get("movement_events", [])[:60]
+    compact["five_second_windows"] = tracking.get("five_second_windows", [])[:90]
+    return compact
+
+
 def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict, visual_tracking: dict, grading_guide: dict):
     visual_notes = "No usable video frames were extracted."
     if images:
         observations = []
-        for image in images:
-            msg = {"role": "user", "content": f"At {image['time']:.1f}s, describe only visible speaker posture, body orientation and hand/arm position. Do not infer eye contact, intent, engagement, gesture meaning or behavior between frames. State if inconclusive.", "images": [image["base64"]]}
-            observations.append(ollama_chat(vision_model, [msg], num_ctx=8192))
+        # Multi-image requests preserve each timestamp while cutting sequential
+        # vision-model round trips by roughly two thirds.
+        batch_size = 3
+        for offset in range(0, len(images), batch_size):
+            batch = images[offset:offset + batch_size]
+            manifest = "\n".join(
+                f"Image {index + 1}: timestamp {image['time']:.1f}s"
+                for index, image in enumerate(batch)
+            )
+            msg = {
+                "role": "user",
+                "content": (
+                    "Describe EACH supplied image separately, in the same order, using its timestamp below. "
+                    "For each image, report only visible speaker posture, body orientation, and hand/arm position. "
+                    "Do not infer eye contact, intent, engagement, gesture meaning, or behavior between frames. "
+                    "Say when a feature is inconclusive. Keep each entry concise.\n" + manifest
+                ),
+                "images": [image["base64"] for image in batch],
+            }
+            observations.append(ollama_chat(vision_model, [msg], num_ctx=8192, num_predict=500))
         visual_notes = "\n".join(observations)
     speech_metrics = speech_statistics(segments, duration)
     alignment = align_speech_and_motion(audio_metrics, visual_tracking)
     categories = {}
     for name, rubric in RUBRIC.items():
-        if name in ("Fluency", "Word Choice"):
+        if name == "Fluency":
             evidence = {"transcript": transcript[:18000], "speech_metrics": speech_metrics}
+            has_evidence = bool(transcript.strip()) and speech_metrics.get("transcript_word_count", 0) > 0
+        elif name == "Word Choice":
+            # Speech-rate and gap metrics are irrelevant to vocabulary assessment.
+            evidence = {"transcript": transcript[:18000]}
             has_evidence = bool(transcript.strip()) and speech_metrics.get("transcript_word_count", 0) > 0
         elif name == "Vocal Delivery":
             evidence = {"acoustic_measurements": audio_metrics, "transcript_context": transcript[:5000]}
             has_evidence = bool(audio_metrics.get("segment_features")) or any(audio_metrics.get(k) is not None for k in ("pitch_median_hz", "pitch_10_to_90_range_semitones", "relative_intensity_median_db"))
         else:
-            evidence = {"body_hand_tracking": visual_tracking, "sampled_frame_observations": visual_notes, "speech_motion_alignment": alignment}
+            evidence = {"body_hand_tracking": compact_visual_tracking(visual_tracking), "sampled_frame_observations": visual_notes[:12000], "speech_motion_alignment": alignment[:50]}
             has_evidence = visual_tracking.get("observations", 0) > 0 or (bool(images) and bool(visual_notes.strip()))
         levels = "\n".join(f"Level {n}: {desc}" for n, desc in rubric["levels"].items())
         prompt = f"""Assess ONLY {name} for a university presentation.
@@ -422,7 +459,7 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
         item, error = None, ""
         for attempt in range(2):
             retry = "" if attempt == 0 else f" Your previous answer failed validation: {error}. Correct it using the supplied evidence; do not invent a score."
-            raw = ollama_chat(text_model, [{"role": "user", "content": prompt + retry}], num_ctx=8192)
+            raw = ollama_chat(text_model, [{"role": "user", "content": prompt + retry}], num_ctx=8192, num_predict=900)
             try:
                 candidate = json_from_text(raw)
                 score = candidate.get("score")
