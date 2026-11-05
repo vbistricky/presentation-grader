@@ -270,7 +270,7 @@ STRICT RULES:
 }}
 """
 
-def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict, visual_tracking: dict):
+def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict, visual_tracking: dict, grading_guide: dict):
     visual_notes = "No usable video frames were extracted."
     if images:
         observations = []
@@ -293,6 +293,8 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
             has_evidence = visual_tracking.get("observations", 0) > 0 or (bool(images) and bool(visual_notes.strip()))
         levels = "\n".join(f"Level {n}: {desc}" for n, desc in rubric["levels"].items())
         prompt = f"""Assess ONLY {name} for a university presentation.
+Instructor-approved interpretation guidance (supplemental, NOT the official rubric; examples must not predetermine scores):
+{guide_prompt_context(grading_guide)}
 Official rubric ({rubric['sub']}):
 {levels}
 Evidence:
@@ -323,7 +325,7 @@ Rules: use only evidence above; score this category independently. The transcrip
         categories[name] = item
     strengths = [f"{n}: {v['rationale']}" for n, v in categories.items() if v.get("score") is not None]
     improvements = [f"{n}: {v['limitations']}" for n, v in categories.items() if v.get("limitations")]
-    return {"categories": categories, "strengths": strengths[:6], "improvements": improvements[:6], "overall_comments": "Each rubric category was assessed independently. Instructor review is required.", "transcript_language": "See detected language reported during transcription."}, visual_notes, alignment
+    return {"categories": categories, "strengths": strengths[:6], "improvements": improvements[:6], "overall_comments": "Each rubric category was assessed independently. Instructor review is required.", "transcript_language": "See detected language reported during transcription.", "grading_guide": {"path": str(GUIDE_PATH), "approved_guidelines_used": len(grading_guide.get("approved_guidelines", [])), "borderline_decisions_used": len(grading_guide.get("borderline_decisions", []))}}, visual_notes, alignment
 st.title("Presentation Grader — Local AI")
 st.caption("Local processing · student video and transcript stay on this computer · application code checks for verified updates at startup")
 st.warning(
@@ -401,7 +403,7 @@ if video and st.button("Analyze presentation", type="primary"):
                 ensure_ollama_model(text_model)
                 ensure_ollama_model(vision_model)
                 status.update(label="Running local rubric analysis…")
-                result, visual_notes, speech_motion_alignment = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking)
+                result, visual_notes, speech_motion_alignment = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking, grading_guide)
                 status.update(label="Analysis complete", state="complete")
             result["transcript"] = transcript
             result["visual_observations"] = visual_notes
