@@ -345,10 +345,13 @@ SCORING CALIBRATION:
 GENERAL EVIDENCE RULES: use only evidence above; score this category independently. The transcript is {"NONEMPTY and contains usable spoken words" if transcript.strip() else "EMPTY"}. Never claim there is no transcript or no speech when it is nonempty. Fluency: use approximate rate/timing cautiously; do not invent stammering or fillers. Word Choice: quote exact transcript phrases. Vocal Delivery: use actual acoustic measurements, but they do not prove perceived loudness or effective intonation. Nonverbal: use only visible tracking/frame observations; transcript availability is irrelevant. Do not infer eye contact, intent, engagement or gesture meaning. Assign 1–4 only when supported by this category's evidence; use null only when genuinely insufficient. Never use 1 or null as a placeholder. Explain why the score fits and why the nearest adjacent level is less supported.
 FEEDBACK QUALITY:
 - Identify at least one genuine, specific strength supported by the supplied evidence when one is present. Do not invent praise or use generic compliments.
-- State improvements only when there is a specific, actionable opportunity supported by evidence. Do not turn every limitation or uncertainty into a criticism.
-- Separate demonstrated strengths from improvement opportunities. A presentation can have a strong score and still have a useful, limited suggestion; it does not need a manufactured weakness in every category.
-- Write feedback in a balanced, respectful instructor voice. Explain the impact of a meaningful issue without overstating it. Avoid repetitive, exhaustive nitpicking.
-- "limitations" is reserved for uncertainty in the evidence or method; it is NOT a list of things the student did poorly.
+- "actionable_feedback" and the overall "Areas for the presenter to improve" section MUST address the presenter and the presentation itself. Phrase each item as advice to the presenter (for example, "Vary your intonation to emphasize key points" or "Contextualize specialized terms for a broad audience").
+- Include only a specific, observable, presenter-controllable behavior or presentation choice that the evidence supports and that meaningfully aligns with an improvement opportunity in the rubric. Do not criticize personality, ability, identity, or presumed intent.
+- Never put model/system shortcomings, missing measurements, tracking failures, uncertain transcription, unavailable camera views, evidence gaps, or instructor-verification tasks in "actionable_feedback". Those belong exclusively in "limitations" and the evidence-validation notes.
+- If no presenter-focused improvement is supported, return an empty "actionable_feedback" list. Do not manufacture criticism to fill the section.
+- Separate demonstrated strengths from presenter improvement opportunities. A presentation can have a strong score and still have a useful, limited suggestion; it does not need a manufactured weakness in every category.
+- Write feedback in a balanced, respectful instructor voice, addressing the presenter directly where natural ("you could..." / "consider..."). Explain the impact of a meaningful issue without overstating it. Avoid repetitive, exhaustive nitpicking.
+- "limitations" is reserved for uncertainty in the evidence or method; it is NOT a list of things the presenter did poorly.
 Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "rationale":"balanced explanation", "evidence":["specific evidence"], "positive_observations":["specific demonstrated strengths"], "actionable_feedback":["specific improvement only if warranted; otherwise empty"], "adjacent_level_reasoning":"...", "limitations":"evidence/method uncertainty only"}}"""
         item, error = None, ""
         for attempt in range(2):
@@ -522,7 +525,7 @@ if "result" in st.session_state:
     st.markdown("### Strengths")
     for x in result.get("strengths", []):
         st.markdown(f"- {x}")
-    st.markdown("### Areas for improvement")
+    st.markdown("### Areas for the presenter to improve")
     for x in result.get("improvements", []):
         st.markdown(f"- {x}")
     st.markdown("### Overall comments")
