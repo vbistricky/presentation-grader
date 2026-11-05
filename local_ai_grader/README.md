@@ -30,6 +30,18 @@ The application processes frames across the entire video at a selected rate (2â€
 
 A hand movement detection is not proof of an intentional gesture. Pose geometry does not establish eye contact, audience focus, confidence, engagement, or whether a gesture strategically emphasizes a point. Camera framing, occlusion, lighting, clothing, and angle can reduce tracking reliability. The application therefore does not automatically assign a Nonverbal Communication score from these measurements; the instructor must inspect the original video.
 
+## Instructor AI Grading Guide and evidence audit
+
+The app maintains an instructor-owned guide at `%LOCALAPPDATA%\\PresentationGrader\\grading_guide.json` on Windows (or the user's local data directory on other platforms). It persists independently of application source updates and includes three separate collections:
+
+- `approved_guidelines`: instructor-approved interpretation guidance that is supplied to the grader.
+- `borderline_decisions`: documented close calls and the reasoning used to distinguish adjacent rubric levels; supplied as calibration examples, not scoring templates.
+- `proposed_refinements`: suggestions that are not sent to the scoring model until an instructor moves them into approved guidance.
+
+Use **AI Grading Guide** in the sidebar to edit the JSON, import a guide, or export it for backup/sharing with other instructors. Only approved guidelines and borderline decisions are included in the grading prompt. The official rubric text remains separate and unchanged. The guide should use anonymized examples and must not contain student-identifying information.
+
+Each category assessment also receives a separate evidence-to-claim audit from the local model. The audit checks factual statements against that category's supplied transcript, acoustic measurements, or visual tracking evidence; it reports unsupported claims, suggested safer corrections, and audit errors in the evaluation. A passing audit does not prove the grade is correct, and a flagged claim still requires instructor review against the original recording. This audit is an additional model review, not a deterministic fact-checker.
+
 ## Important grading safeguards
 
 - **Vocal Delivery receives a tentative best-fit score when usable audio evidence exists.** Pitch and relative-intensity patterns can support a cautious estimate of vocal variation, but cannot establish perceived room volume or whether intonation is engaging, mannered, defensive, or off-putting. The instructor should listen to the original presentation and confirm the score.
