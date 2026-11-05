@@ -297,17 +297,24 @@ STRICT RULES:
 }}
 """
 
+CATEGORY_SCOPE = {
+    "Vocal Delivery": "ONLY audible volume and intonation used for emphasis, including whether intonation is flat or mannered. Exclude speech rate, pauses, fillers, vocabulary, gestures, and gaze.",
+    "Fluency": "ONLY speech flow, cadence, pace, pauses, stammering, and filler words. Exclude intonation quality, perceived loudness, vocabulary, gestures, and gaze.",
+    "Nonverbal Communication": "ONLY observable body language, posture, and gestures; eye contact only when genuinely verifiable. Exclude vocal delivery, fluency, and vocabulary.",
+    "Word Choice": "ONLY vocabulary relevance and precision, correct technical terminology, jargon, plain-language explanation/contextualization, and oversimplification or conceptual distortion caused by word choice. NEVER assess intonation, tone, volume, pauses, speech pace, stammering, or fillers."
+}
 def validate_category_claims(text_model, category, assessment, evidence):
-    prompt = f'''Audit factual claims in this {category} assessment against ONLY the supplied evidence.
+    prompt = f'''Audit BOTH factual support and rubric-category relevance in this {category} assessment. CATEGORY DEFINITION: {CATEGORY_SCOPE[category]} A claim can be factually true yet irrelevant to this category. Repeated fillers may be supported by a transcript but are NOT Word Choice evidence; intonation/flat tone is NOT Word Choice evidence; vocabulary quality is NOT Fluency evidence. Review rationale, evidence, positive_observations, actionable_feedback, adjacent_level_reasoning, and limitations. Flag category-irrelevant claims separately from unsupported claims. Category contamination in rationale, evidence, or adjacent_level_reasoning is material and requires instructor review of the score. Do not change the score.
 DRAFT: {json.dumps(assessment, ensure_ascii=False)}
 EVIDENCE: {json.dumps(evidence, ensure_ascii=False)[:18000]}
 Flag unsupported inferences, invented quotations, incorrect values, and claims stronger than evidence. Absence of a detected event is not proof it never happened. Acoustic measures do not prove perceived loudness or effective intonation. Tracking does not prove eye contact, intent, audience focus, or strategic gesture meaning. Transcripts may contain recognition errors. Do not change the score.
-Return ONLY JSON with keys status (pass or revise), supported_claims (list), unsupported_claims (list), corrections (list).'''
+Return ONLY JSON with keys status (pass or revise), supported_claims (list), unsupported_claims (list), irrelevant_claims (list), corrections (list), score_review_required (boolean).'''
     audit = json_from_text(ollama_chat(text_model, [{"role": "user", "content": prompt}], num_ctx=8192))
     if audit.get("status") not in ("pass", "revise"): raise ValueError("Invalid audit status")
-    for key in ("supported_claims", "unsupported_claims", "corrections"):
+    for key in ("supported_claims", "unsupported_claims", "irrelevant_claims", "corrections"):
         if not isinstance(audit.get(key), list): raise ValueError("Missing audit list: " + key)
-    if audit["unsupported_claims"]: audit["status"] = "revise"
+    if not isinstance(audit.get("score_review_required"), bool): raise ValueError("Missing score_review_required boolean")
+    if audit["unsupported_claims"] or audit["irrelevant_claims"]: audit["status"] = "revise"
     return audit
 def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict, visual_tracking: dict, grading_guide: dict):
     visual_notes = "No usable video frames were extracted."
@@ -338,6 +345,11 @@ Official rubric ({rubric['sub']}):
 {levels}
 Evidence:
 {json.dumps(evidence, ensure_ascii=False)[:20000]}
+CATEGORY SCOPE — STRICT SEPARATION:
+{CATEGORY_SCOPE[name]}
+- Base this category's score ONLY on the criteria named above. Do not import evidence from another category, even if factually correct.
+- Apply this boundary to score rationale, evidence, positive observations, actionable feedback, limitations, and adjacent-level reasoning.
+- Word Choice must never be justified or penalized by intonation, tone, volume, pauses, pace, stammering, or fillers.
 SCORING CALIBRATION:
 - Judge the overall performance in this category against the complete official level descriptions. Do not treat the rubric as a mechanical checklist or count isolated imperfections.
 - A descriptor saying a performance "may" include a behavior describes what can be consistent with that level; it is not an automatic score trigger. Explain why the observed behavior is representative or consequential enough to make that level the best fit.
@@ -379,6 +391,9 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
                     continue
                 try:
                     candidate["evidence_validation"] = validate_category_claims(text_model, name, candidate, evidence)
+                    if candidate["evidence_validation"].get("score_review_required"):
+                        candidate["score_review_required"] = True
+                        candidate["confidence"] = "low"
                 except Exception as audit_exc:
                     candidate["evidence_validation"] = {"status": "review_required", "unsupported_claims": [], "corrections": [], "error": str(audit_exc)}
                 item = candidate
@@ -520,9 +535,15 @@ if "result" in st.session_state:
         audit = item.get("evidence_validation", {})
         audit_status = audit.get("status", "not run")
         st.caption(f"Evidence-to-claim validation: {audit_status}")
+        if audit.get("score_review_required") or item.get("score_review_required"):
+            st.warning("Instructor review required: the assessment may rely on evidence outside this rubric category. The tentative score has not been automatically changed.")
         if audit.get("unsupported_claims"):
             st.warning("Claims the evidence auditor could not verify:")
             for claim in audit["unsupported_claims"]:
+                st.markdown(f"- {claim}")
+        if audit.get("irrelevant_claims"):
+            st.warning("Claims that may be supported but do not belong to this rubric category:")
+            for claim in audit["irrelevant_claims"]:
                 st.markdown(f"- {claim}")
         if audit.get("corrections"):
             st.markdown("**Suggested evidence-aligned corrections**")
