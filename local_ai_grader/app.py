@@ -270,6 +270,18 @@ STRICT RULES:
 }}
 """
 
+def validate_category_claims(text_model, category, assessment, evidence):
+    prompt = f'''Audit factual claims in this {category} assessment against ONLY the supplied evidence.
+DRAFT: {json.dumps(assessment, ensure_ascii=False)}
+EVIDENCE: {json.dumps(evidence, ensure_ascii=False)[:18000]}
+Flag unsupported inferences, invented quotations, incorrect values, and claims stronger than evidence. Absence of a detected event is not proof it never happened. Acoustic measures do not prove perceived loudness or effective intonation. Tracking does not prove eye contact, intent, audience focus, or strategic gesture meaning. Transcripts may contain recognition errors. Do not change the score.
+Return ONLY JSON with keys status (pass or revise), supported_claims (list), unsupported_claims (list), corrections (list).'''
+    audit = json_from_text(ollama_chat(text_model, [{"role": "user", "content": prompt}], num_ctx=8192))
+    if audit.get("status") not in ("pass", "revise"): raise ValueError("Invalid audit status")
+    for key in ("supported_claims", "unsupported_claims", "corrections"):
+        if not isinstance(audit.get(key), list): raise ValueError("Missing audit list: " + key)
+    if audit["unsupported_claims"]: audit["status"] = "revise"
+    return audit
 def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict, visual_tracking: dict, grading_guide: dict):
     visual_notes = "No usable video frames were extracted."
     if images:
