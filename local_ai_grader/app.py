@@ -353,6 +353,27 @@ with st.sidebar:
     tracking_fps = st.slider("Continuous pose/hand tracking rate (frames per second)", 2, 10, 5)
     st.markdown("Landmark tracking samples the full video at the selected rate; it does not analyze every source frame.")
 
+grading_guide = load_grading_guide()
+with st.sidebar.expander("AI Grading Guide", expanded=False):
+    st.caption("Supplemental instructor guidance only. The official rubric remains unchanged.")
+    imported_guide = st.file_uploader("Import guide (.json)", type=["json"], key="guide_import")
+    if imported_guide is not None and st.button("Import and replace saved guide", key="guide_import_btn"):
+        try:
+            save_grading_guide(json.loads(imported_guide.getvalue().decode("utf-8")))
+            st.success("Guide imported; it will be used in the next evaluation.")
+            st.rerun()
+        except Exception as exc: st.error(f"Import failed: {exc}")
+    guide_json = st.text_area("Edit guide JSON", json.dumps(grading_guide, indent=2, ensure_ascii=False), height=260, key="guide_json_editor")
+    if st.button("Save grading guide", key="guide_save_btn"):
+        try:
+            save_grading_guide(json.loads(guide_json))
+            st.success("Guide saved locally.")
+            st.rerun()
+        except Exception as exc: st.error(f"Guide was not saved: {exc}")
+    st.download_button("Export grading guide (.json)", json.dumps(grading_guide, indent=2, ensure_ascii=False), "presentation-grading-guide.json", "application/json", key="guide_export_btn")
+    st.caption(f"Local file: {GUIDE_PATH}")
+    st.caption("Only approved_guidelines and borderline_decisions are used. proposed_refinements are excluded until instructor approval.")
+
 video = st.file_uploader("Choose a presentation video", type=["mp4", "mov", "mkv", "webm", "avi"])
 if video:
     st.video(video.getvalue())
