@@ -395,7 +395,9 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
                         candidate["score_review_required"] = True
                         candidate["confidence"] = "low"
                 except Exception as audit_exc:
-                    candidate["evidence_validation"] = {"status": "review_required", "unsupported_claims": [], "corrections": [], "error": str(audit_exc)}
+                    candidate["evidence_validation"] = {"status": "review_required", "unsupported_claims": [], "irrelevant_claims": [], "corrections": [], "score_review_required": True, "error": str(audit_exc)}
+                    candidate["score_review_required"] = True
+                    candidate["confidence"] = "low"
                 item = candidate
                 break
             except (ValueError, json.JSONDecodeError) as exc:
