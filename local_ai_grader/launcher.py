@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent
 PYTHON = ROOT / "python" / "python.exe"
 APP_DIR = ROOT / "local_ai_grader"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
-REQUIRED_MODELS = ("qwen2.5:3b", "qwen2.5vl:3b")
+REQUIRED_MODELS = ("qwen2.5:7b", "qwen2.5vl:3b")
 API = "http://127.0.0.1:11434"
 LOG_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "PresentationGrader" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -269,8 +269,8 @@ def main() -> int:
     # Apply the compact defaults immediately even when this is the first launch
     # of an older installed launcher that has just self-updated above.
     global REQUIRED_MODELS
-    REQUIRED_MODELS = ("qwen2.5:3b", "qwen2.5vl:3b")
-    log("Checking local AI components. The first launch downloads the compact Ollama models automatically.")
+    REQUIRED_MODELS = ("qwen2.5:7b", "qwen2.5vl:3b")
+    log("Checking local AI components. The first launch downloads the recommended 7B text model and compact vision model automatically.")
     ollama = ensure_ollama_installed()
     ensure_ollama_server(ollama)
     ensure_models(ollama)
