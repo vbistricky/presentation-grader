@@ -71,7 +71,7 @@ GUIDE_BASELINE = {
         {"id": "human-review", "status": "approved", "text": "AI scores are tentative recommendations. Identify criteria that require instructor verification from the original recording."}
     ],
     "borderline_decisions": [
-        {"id": "historical-vocal-fluency-example", "status": "instructor-provided-example", "category": ["Vocal Delivery", "Fluency"], "decision": "Instructor preferred Level 2 rather than Level 3 for both categories.", "reported_evidence": "The instructor described a consistently similar tone throughout, excessive volume, pauses the instructor judged strategic, and several filler words.", "interpretation": "A generally understandable presentation may still fit Level 2 when vocal tone is flat or mannered, volume is unsuitable, or occasional filler words/pacing issues are present. Strategic pauses alone do not establish Level 4; cadence and emphasis must also be supported.", "scope_warning": "This is one instructor-described example, not a universal rule or an automatic scoring template. Assess each new presentation from its own evidence."}
+        {"id": "historical-vocal-fluency-example", "status": "instructor-provided-example", "category": ["Vocal Delivery", "Fluency"], "decision": "Instructor preferred Level 2 rather than Level 3 for both categories.", "reported_evidence": "The instructor described a consistently similar tone throughout, excessive volume, pauses the instructor judged strategic, and several filler words.", "interpretation": "This records one instructor judgment based on the combined observations in this particular presentation. Do not generalize it into a rule that any flat-sounding passage, loudness concern, pause, or filler automatically determines a score. For each new presentation, compare the overall observed performance with the full descriptors at the neighboring levels and explain why the identified issue is consequential enough to support the selected level. Strategic pauses alone do not establish Level 4; cadence and emphasis must also be supported.", "scope_warning": "This is one instructor-described example, not a universal rule or an automatic scoring template. Assess each new presentation from its own evidence."}
     ],
     "proposed_refinements": [],
     "notes": "Supplemental interpretation guidance only; the official Oral Communication Badge Rubric remains unchanged. Prior examples calibrate interpretation but must never predetermine a current score."
@@ -330,7 +330,26 @@ Official rubric ({rubric['sub']}):
 {levels}
 Evidence:
 {json.dumps(evidence, ensure_ascii=False)[:20000]}
-Rules: use only evidence above; score this category independently. The transcript is {"NONEMPTY and contains usable spoken words" if transcript.strip() else "EMPTY"}. Never claim there is no transcript or no speech when it is nonempty. Fluency: use approximate rate/timing cautiously; do not invent stammering or fillers. Word Choice: quote exact transcript phrases. Vocal Delivery: use actual acoustic measurements, but they do not prove perceived loudness or effective intonation. Nonverbal: use only visible tracking/frame observations; transcript availability is irrelevant. Do not infer eye contact, intent, engagement or gesture meaning. Assign 1–4 only when supported by this category's evidence; use null only when genuinely insufficient. Never use 1 or null as a placeholder. Explain why the score fits and why the nearest adjacent level is less supported. Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "rationale":"...", "evidence":["specific evidence"], "adjacent_level_reasoning":"...", "limitations":"..."}}"""
+SCORING CALIBRATION:
+- Judge the overall performance in this category against the complete official level descriptions. Do not treat the rubric as a mechanical checklist or count isolated imperfections.
+- A descriptor saying a performance "may" include a behavior describes what can be consistent with that level; it is not an automatic score trigger. Explain why the observed behavior is representative or consequential enough to make that level the best fit.
+- Do not demand perfection for Level 3 or Level 4. Give credit when the evidence demonstrates the relevant level, while acknowledging specific limitations or imperfections proportionately.
+- Do not inflate scores either: choose the level whose full description best matches the evidence. A lower score needs positive evidence of the lower-level characteristics, not merely missing proof of higher-level characteristics.
+- Distinguish occasional from recurring behavior, and minor from materially disruptive behavior, wherever the evidence permits. Do not exaggerate frequency, severity, or audience impact.
+- For borderline decisions, compare the selected level with the nearest higher and lower levels. State which specific descriptor(s) are supported and which are not. Do not claim an adjacent level is ruled out merely because one feature is uncertain.
+- Missing or unmeasurable evidence is a limitation, not proof of poor performance. Do not lower a score solely because an automated method cannot verify a rubric dimension.
+- Vocal Delivery: the rubric's distinction between Levels 1 and 2 includes appropriateness of volume and the severity/effect of flat or mannered intonation. Acoustic proxies cannot establish perceived room volume or audience impact; do not use them alone to assert that volume is too loud/quiet or that delivery is unengaging. Clearly qualify tentative estimates.
+- Fluency: the rubric distinguishes Level 2's occasional issues from Level 1's frequent issues that disrupt cadence or obscure emphasis. Use actual transcript/timing evidence and do not overstate frequency. A WPM estimate alone does not determine a score.
+- Nonverbal Communication: distinguish occasional stiffness, limited gestures, or occasional text focus (Level 2 descriptors) from consistent text focus or consistently distracting mannerisms (Level 1 descriptors). Sparse samples/tracking cannot establish these frequencies unless the evidence actually supports them.
+- Word Choice: distinguish jargon that obscures meaning or oversimplification (Level 2) from imprecise/incorrect terminology or distorted concepts (Level 1). Do not penalize accurate technical vocabulary merely for being specialized.
+GENERAL EVIDENCE RULES: use only evidence above; score this category independently. The transcript is {"NONEMPTY and contains usable spoken words" if transcript.strip() else "EMPTY"}. Never claim there is no transcript or no speech when it is nonempty. Fluency: use approximate rate/timing cautiously; do not invent stammering or fillers. Word Choice: quote exact transcript phrases. Vocal Delivery: use actual acoustic measurements, but they do not prove perceived loudness or effective intonation. Nonverbal: use only visible tracking/frame observations; transcript availability is irrelevant. Do not infer eye contact, intent, engagement or gesture meaning. Assign 1–4 only when supported by this category's evidence; use null only when genuinely insufficient. Never use 1 or null as a placeholder. Explain why the score fits and why the nearest adjacent level is less supported.
+FEEDBACK QUALITY:
+- Identify at least one genuine, specific strength supported by the supplied evidence when one is present. Do not invent praise or use generic compliments.
+- State improvements only when there is a specific, actionable opportunity supported by evidence. Do not turn every limitation or uncertainty into a criticism.
+- Separate demonstrated strengths from improvement opportunities. A presentation can have a strong score and still have a useful, limited suggestion; it does not need a manufactured weakness in every category.
+- Write feedback in a balanced, respectful instructor voice. Explain the impact of a meaningful issue without overstating it. Avoid repetitive, exhaustive nitpicking.
+- "limitations" is reserved for uncertainty in the evidence or method; it is NOT a list of things the student did poorly.
+Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "rationale":"balanced explanation", "evidence":["specific evidence"], "positive_observations":["specific demonstrated strengths"], "actionable_feedback":["specific improvement only if warranted; otherwise empty"], "adjacent_level_reasoning":"...", "limitations":"evidence/method uncertainty only"}}"""
         item, error = None, ""
         for attempt in range(2):
             retry = "" if attempt == 0 else f" Your previous answer failed validation: {error}. Correct it using the supplied evidence; do not invent a score."
@@ -343,7 +362,7 @@ Rules: use only evidence above; score this category independently. The transcrip
                 contradiction = name in ("Fluency", "Word Choice") and has_evidence and any(x in fields for x in ("no usable speech evidence", "no speech segments", "transcript does not contain", "transcript lacks"))
                 bad_abstention = has_evidence and score is None
                 unsupported_score = not has_evidence and score is not None
-                missing = any(not candidate.get(k) for k in ("rationale", "evidence", "adjacent_level_reasoning", "limitations"))
+                missing = any(not candidate.get(k) for k in ("rationale", "evidence", "adjacent_level_reasoning", "limitations")) or not isinstance(candidate.get("positive_observations", []), list) or not isinstance(candidate.get("actionable_feedback", []), list)
                 if bad_score or contradiction or bad_abstention or unsupported_score or missing:
                     error = "response contradicted available evidence, omitted required reasoning, or returned an unsupported score"
                     continue
@@ -358,8 +377,8 @@ Rules: use only evidence above; score this category independently. The transcrip
         if item is None:
             item = {"score": None, "confidence": "low", "rationale": "No grade is recommended because the model failed evidence validation.", "evidence": [], "adjacent_level_reasoning": "A defensible adjacent-level comparison was not returned.", "limitations": error or "The model did not return a valid assessment."}
         categories[name] = item
-    strengths = [f"{n}: {v['rationale']}" for n, v in categories.items() if v.get("score") is not None]
-    improvements = [f"{n}: {v['limitations']}" for n, v in categories.items() if v.get("limitations")]
+    strengths = [f"{n}: {point}" for n, v in categories.items() for point in v.get("positive_observations", [])]
+    improvements = [f"{n}: {point}" for n, v in categories.items() for point in v.get("actionable_feedback", [])]
     return {"categories": categories, "strengths": strengths[:6], "improvements": improvements[:6], "overall_comments": "Each rubric category was assessed independently. Instructor review is required.", "transcript_language": "See detected language reported during transcription.", "grading_guide": {"path": str(GUIDE_PATH), "approved_guidelines_used": len(grading_guide.get("approved_guidelines", [])), "borderline_decisions_used": len(grading_guide.get("borderline_decisions", []))}}, visual_notes, alignment
 st.title("Presentation Grader — Local AI")
 st.caption("Local processing · student video and transcript stay on this computer · application code checks for verified updates at startup")
@@ -471,6 +490,14 @@ if "result" in st.session_state:
         st.markdown(f"### {name} — {'Unable to estimate' if score is None else f'{score} / 4 · tentative'}")
         st.caption(f"Confidence: {item.get('confidence', 'not stated')}")
         st.write(item.get("rationale", "No rationale returned."))
+        if item.get("positive_observations"):
+            st.markdown("**Demonstrated strengths**")
+            for point in item["positive_observations"]:
+                st.markdown(f"- {point}")
+        if item.get("actionable_feedback"):
+            st.markdown("**Constructive next steps**")
+            for point in item["actionable_feedback"]:
+                st.markdown(f"- {point}")
         if item.get("evidence"):
             st.markdown("**Evidence**")
             for ev in item["evidence"]:
