@@ -222,7 +222,10 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
             min_tracking_confidence=0.5
         ) as hands_processor:
             while True:
-                ok, frame = cap.read()
+                # Grab every source frame to preserve timestamps, but retrieve
+                # and convert pixels only for frames selected for landmark work.
+                # This avoids allocating/decoding full BGR arrays for most frames.
+                ok = cap.grab()
                 if not ok:
                     break
                 frame_index += 1
@@ -232,6 +235,9 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
                 if timestamp + 1e-6 < next_sample:
                     continue
                 next_sample = timestamp + interval
+                ok, frame = cap.retrieve()
+                if not ok or frame is None:
+                    continue
 
                 height, width = frame.shape[:2]
                 scale = min(1.0, 640.0 / max(width, height))
