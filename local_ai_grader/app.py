@@ -328,6 +328,10 @@ Rules: use only evidence above; score this category independently. The transcrip
                 if bad_score or contradiction or bad_abstention or unsupported_score or missing:
                     error = "response contradicted available evidence, omitted required reasoning, or returned an unsupported score"
                     continue
+                try:
+                    candidate["evidence_validation"] = validate_category_claims(text_model, name, candidate, evidence)
+                except Exception as audit_exc:
+                    candidate["evidence_validation"] = {"status": "review_required", "unsupported_claims": [], "corrections": [], "error": str(audit_exc)}
                 item = candidate
                 break
             except (ValueError, json.JSONDecodeError) as exc:
