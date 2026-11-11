@@ -12,7 +12,10 @@ from pathlib import Path
 
 import requests
 
-ROOT = Path(__file__).resolve().parent
+# In a PyInstaller-frozen build, __file__ may point into the temporary
+# extraction directory. Updates and bundled resources must be resolved beside
+# the installed executable instead.
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 PYTHON = ROOT / "python" / "python.exe"
 APP_DIR = ROOT / "local_ai_grader"
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
@@ -30,7 +33,7 @@ def update_application() -> None:
     """Apply verified code-only updates from the public GitHub main branch."""
     repo = "vbistricky/presentation-grader"
     api = "https://api.github.com/repos/" + repo
-    raw = "https://raw.githubusercontent.com/" + repo + "/main/"
+    raw = "https://raw.githubusercontent.com/" + repo + "/"
     targets = {
         "local_ai_grader/launcher.py": ROOT / "launcher.py",
         "local_ai_grader/app.py": APP_DIR / "app.py",
@@ -61,7 +64,7 @@ def update_application() -> None:
             current_sha = hashlib.sha1(b"blob " + str(len(current)).encode("ascii") + b"\0" + current).hexdigest() if current else ""
             if current_sha == expected_sha:
                 continue
-            response = session.get(raw + relative, timeout=45)
+            response = session.get(raw + latest_commit + "/" + relative, timeout=45)
             response.raise_for_status()
             payload = response.content
             actual_sha = hashlib.sha1(b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload).hexdigest()
