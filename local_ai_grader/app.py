@@ -350,7 +350,7 @@ CATEGORY_SCOPE_FORBIDDEN = {
     "Word Choice": r"\b(?:intonation|pitch|prosody|volume|loudness|pauses?|pacing|speech rate|speaking rate|words per minute|wpm|stammer(?:ing)?|fluency|filler words?|verbal fillers?)\b",
     "Vocal Delivery": r"\b(?:filler(?:s|\s+words?)?|verbal fillers?|disfluenc\w*|stammer(?:ing)?|unplanned pauses?|speech rate|speaking rate|words per minute|wpm|jargon|vocabular(?:y|ies)|word choice|terminolog(?:y|ies)|technical (?:terms?|words?|vocabulary)|speciali[sz]ed (?:terms?|words?|vocabulary)|gestures?|eye contact)\b",
     "Fluency": r"\b(?:intonation|pitch|prosody|volume|loudness|tone of voice|jargon|vocabulary|word choice|gestures?|eye contact)\b",
-    "Nonverbal Communication": r"\b(?:intonation|pitch|prosody|volume|loudness|tone of voice|filler words?|verbal fillers?|stammer(?:ing)?|unplanned pauses?|speech rate|speaking rate|words per minute|wpm|jargon|vocabulary|word choice)\b"
+    "Nonverbal Communication": r"\b(?:vocal delivery|acoustic (?:measurements|features)|speech[- ](?:motion )?alignment|speech timing|speech flow|intonation|pitch|prosody|volume|loudness|tone of voice|filler words?|verbal fillers?|stammer(?:ing)?|unplanned pauses?|speech rate|speaking rate|words per minute|wpm|jargon|vocabulary|word choice)\b"
 }
 
 def category_scope_violations(category, assessment):
@@ -419,6 +419,47 @@ def compact_visual_tracking(tracking: dict) -> dict:
     return compact
 
 
+def nonverbal_evidence_profile(tracking: dict, images: list[dict], vision_notes: str) -> dict:
+    """Separate usable visual evidence from raw tracker sample counts.
+
+    A sampled frame description can support a cautious assessment even when
+    MediaPipe hand detection is weak. Raw observations with zero pose detections
+    are not, by themselves, evidence that the presenter was visible.
+    """
+    observations = int(tracking.get("observations", 0) or 0)
+    pose_percent = tracking.get("pose_landmark_detection_percent")
+    try:
+        pose_percent = float(pose_percent) if pose_percent is not None else 0.0
+    except (TypeError, ValueError):
+        pose_percent = 0.0
+    detected_pose_samples = round(observations * max(0.0, min(100.0, pose_percent)) / 100.0)
+
+    notes = str(vision_notes or "").strip()
+    notes_available = bool(images) and bool(notes) and notes != "No usable video frames were extracted."
+    describes_person = bool(re.search(
+        r"\b(?:speaker|presenter|person|individual|man|woman|body|torso|arms?|hands?|standing|seated|sitting|posture)\b",
+        notes, re.I
+    ))
+    explicitly_not_visible = bool(re.search(
+        r"\b(?:no|not|cannot|can't|unable to|outside|absent)\b.{0,45}\b(?:speaker|presenter|person|individual)\b",
+        notes, re.I
+    ))
+    sampled_frame_speaker_evidence = notes_available and describes_person and not explicitly_not_visible
+    return {
+        "tracking_observations": observations,
+        "pose_detection_percent": round(pose_percent, 1),
+        "estimated_pose_detected_samples": detected_pose_samples,
+        "hand_detection_percent": tracking.get("hand_detection_percent"),
+        "sampled_frame_notes_available": notes_available,
+        "sampled_frames_describe_a_visible_person": sampled_frame_speaker_evidence,
+        "usable_visual_evidence": detected_pose_samples > 0 or sampled_frame_speaker_evidence,
+        "interpretation": (
+            "Treat sampled-frame descriptions and pose detections as independent visual sources. "
+            "Low hand-detection coverage does not invalidate visible posture, body orientation, or arm/hand positions described in sampled frames."
+        )
+    }
+
+
 def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict, visual_tracking: dict, grading_guide: dict, progress_callback=None):
     visual_notes = "No usable video frames were extracted."
     if images:
@@ -473,10 +514,29 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
             evidence = {"acoustic_measurements": audio_metrics}
             has_evidence = bool(audio_metrics.get("segment_features")) or any(audio_metrics.get(k) is not None for k in ("pitch_median_hz", "pitch_10_to_90_range_semitones", "relative_intensity_median_db"))
         else:
-            evidence = {"body_hand_tracking": compact_visual_tracking(visual_tracking), "sampled_frame_observations": visual_notes[:12000], "speech_motion_alignment": alignment[:50]}
-            has_evidence = visual_tracking.get("observations", 0) > 0 or (bool(images) and bool(visual_notes.strip()))
+            visual_profile = nonverbal_evidence_profile(visual_tracking, images, visual_notes)
+            # Keep Nonverbal Communication strictly visual. Speech/acoustic
+            # alignment is intentionally excluded from this category's payload.
+            evidence = {
+                "body_hand_tracking": compact_visual_tracking(visual_tracking),
+                "sampled_frame_observations": visual_notes[:12000],
+                "visual_evidence_profile": visual_profile
+            }
+            has_evidence = visual_profile["usable_visual_evidence"]
         evidence_json = json.dumps(evidence, ensure_ascii=False)
         levels = "\n".join(f"Level {n}: {desc}" for n, desc in rubric["levels"].items())
+        nonverbal_instructions = ""
+        if name == "Nonverbal Communication":
+            nonverbal_instructions = """
+NONVERBAL EVIDENCE INTERPRETATION — IMPORTANT:
+- Use the sampled-frame descriptions and pose tracking as TWO INDEPENDENT visual evidence sources. A weak result from one does not erase usable evidence from the other.
+- The sampled-frame notes are direct descriptions of selected video images. If they describe the presenter’s visible posture, body orientation, or arm/hand positions, discuss those observations even when MediaPipe hand detection is low.
+- A low or zero hand-detection percentage means the hand tracker did not reliably detect hands; it does NOT establish that the presenter made no gestures and does NOT invalidate visible body/posture descriptions.
+- Pose-detection percentage is coverage, not a performance score. Report it as a limitation and do not treat undetected samples as evidence of poor body language.
+- Do not use speech-motion alignment, transcript content, speech timing, pitch, volume, intonation, or other audio information. Those data are not part of this category.
+- Do not claim eye contact, audience focus, intent, strategic emphasis, or gesture meaning from camera-facing posture or movement alone.
+- If the sampled frames show the presenter and/or pose detections are available, make a cautious best-fit 1–4 recommendation from the visible criteria rather than abstaining solely because hand tracking is weak. Use null only if the presenter is not sufficiently visible or the visual observations genuinely cannot support even a tentative level.
+"""
         prompt = f"""Assess ONLY {name} for a university presentation.
 Instructor-approved interpretation guidance (supplemental, NOT the official rubric; examples must not predetermine scores):
 {guide_context}
@@ -503,6 +563,7 @@ SCORING CALIBRATION:
 - Nonverbal Communication: distinguish occasional stiffness, limited gestures, or occasional text focus (Level 2 descriptors) from consistent text focus or consistently distracting mannerisms (Level 1 descriptors). Sparse samples/tracking cannot establish these frequencies unless the evidence actually supports them.
 - Word Choice: distinguish jargon that obscures meaning or oversimplification (Level 2) from imprecise/incorrect terminology or distorted concepts (Level 1). Do not penalize accurate technical vocabulary merely for being specialized.
 GENERAL EVIDENCE RULES: use only evidence above; score this category independently. The transcript is {"NONEMPTY and contains usable spoken words" if transcript.strip() else "EMPTY"}. Never claim there is no transcript or no speech when it is nonempty. Fluency: use approximate rate/timing cautiously; do not invent stammering or fillers. Word Choice: quote exact transcript phrases. Vocal Delivery: use actual acoustic measurements, but they do not prove perceived loudness or effective intonation. Nonverbal: use only visible tracking/frame observations; transcript availability is irrelevant. Do not infer eye contact, intent, engagement or gesture meaning. Assign 1–4 only when supported by this category's evidence; use null only when genuinely insufficient. Never use 1 or null as a placeholder. Explain why the score fits and why the nearest adjacent level is less supported.
+{nonverbal_instructions}
 OUTPUT FORMAT IS MANDATORY: Return one syntactically valid JSON object and nothing else. The score value must be the JSON number 1, 2, 3, or 4, or the JSON literal null. Never output tokens such as abstained_, abstain, N/A, or explanatory text in place of JSON null. Do not wrap the object in Markdown fences.
 FEEDBACK QUALITY:
 - Identify at least one genuine, specific strength supported by the supplied evidence when one is present. Do not invent praise or use generic compliments.
@@ -518,7 +579,21 @@ For Nonverbal Communication specifically: if visual evidence is insufficient, se
         item, error = None, ""
         attempt_diagnostics = []
         for attempt in range(2):
-            retry = "" if attempt == 0 else f" Your previous answer failed validation: {error}. Correct it using the supplied evidence; return complete JSON and do not invent a score."
+            if attempt == 0:
+                retry = ""
+            elif name == "Nonverbal Communication":
+                retry = (
+                    f" Your previous answer failed validation: {error}. Reassess this category from visual evidence ONLY. "
+                    "Do not refer to transcript, speech, audio, intonation, pitch, volume, or speech timing. "
+                    "Treat sampled-frame descriptions independently from pose/hand tracking. Low hand-detection coverage "
+                    "does not invalidate visible posture, body orientation, or arm/hand positions in the frame descriptions. "
+                    "Do not interpret missing detections as absence of gestures. If the supplied frame notes describe a visible "
+                    "presenter or pose detections are present, provide the closest-supported tentative 1–4 score, explain the "
+                    "visual evidence and its limits, and compare the nearest adjacent level. Return null only if the presenter "
+                    "is not sufficiently visible or the visual evidence truly cannot support any tentative level. Return complete JSON."
+                )
+            else:
+                retry = f" Your previous answer failed validation: {error}. Correct it using the supplied evidence; return complete JSON and do not invent a score."
             raw = ""
             try:
                 # Fluency needs room for transcript-specific evidence and the
