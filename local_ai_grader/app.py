@@ -441,7 +441,8 @@ def nonverbal_evidence_profile(tracking: dict, images: list[dict], vision_notes:
         notes, re.I
     ))
     explicitly_not_visible = bool(re.search(
-        r"\b(?:no|not|cannot|can't|unable to|outside|absent)\b.{0,45}\b(?:speaker|presenter|person|individual)\b",
+        r"(?:\b(?:no|not|cannot|can't|unable to|outside|absent)\b.{0,45}\b(?:speaker|presenter|person|individual)\b|"
+        r"\b(?:speaker|presenter|person|individual)\b.{0,45}\b(?:not visible|not in frame|out of frame|off[- ]camera|absent)\b)",
         notes, re.I
     ))
     sampled_frame_speaker_evidence = notes_available and describes_person and not explicitly_not_visible
