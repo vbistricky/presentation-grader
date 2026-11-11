@@ -262,8 +262,8 @@ def json_from_text(text: str):
         # Some local models emit score: abstained_insufficient_visual_evidence
         # instead of the required JSON null. Normalize only that bare token form.
         repaired = re.sub(
-            r'(:\\s*)abstained_[A-Za-z0-9_-]+(?=\\s*[,}])',
-            r'\\1null',
+            r'(:\s*)abstained_[A-Za-z0-9_-]+(?=\s*[,}])',
+            r'\1null',
             payload,
             flags=re.I,
         )
@@ -356,7 +356,7 @@ CATEGORY_SCOPE_FORBIDDEN = {
 def category_scope_violations(category, assessment):
     pattern = re.compile(CATEGORY_SCOPE_FORBIDDEN[category], re.I)
     fields = ("rationale", "evidence", "positive_observations", "actionable_feedback",
-              "adjacent_level_reasoning", "limitations")
+              "adjacent_level_reasoning")
     violations = []
     for field in fields:
         value = assessment.get(field, [])
@@ -368,7 +368,7 @@ def category_scope_violations(category, assessment):
 def remove_out_of_scope_content(category, assessment):
     pattern = re.compile(CATEGORY_SCOPE_FORBIDDEN[category], re.I)
     fields = ("rationale", "evidence", "positive_observations", "actionable_feedback",
-              "adjacent_level_reasoning", "limitations")
+              "adjacent_level_reasoning")
     cleaned = dict(assessment)
     removed = False
     for field in fields:
@@ -646,15 +646,10 @@ For Nonverbal Communication specifically: if visual evidence is insufficient, se
                     if progress_callback:
                         progress_callback(category_start + 4.8, f"Validating {name} evidence", "Checking factual support and category boundaries…")
                     audit = validate_category_claims(text_model, name, candidate, evidence_json)
-                    audit_text = json.dumps(audit, ensure_ascii=False)
-                    if re.search(CATEGORY_SCOPE_FORBIDDEN[name], audit_text, re.I):
-                        scope_content_removed = True
-                        audit = {
-                            "status": "revise", "supported_claims": [], "unsupported_claims": [],
-                            "irrelevant_claims": ["The evidence audit returned material outside this rubric category; instructor review is required."],
-                            "corrections": ["Review this category independently against its official descriptor."],
-                            "score_review_required": True
-                        }
+                    # Do not apply assessment keyword filters to the auditor's
+                    # meta-commentary: it may name excluded criteria while correctly
+                    # explaining why a claim is irrelevant. The structured audit
+                    # fields below determine whether review is required.
                     candidate["evidence_validation"] = audit
                     if progress_callback:
                         progress_callback(category_start + 7.0, f"Validating {name} evidence", "Evidence validation finished.")
