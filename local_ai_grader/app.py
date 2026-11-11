@@ -226,8 +226,14 @@ def extract_media(video_path: str, work: Path, sample_count: int = 24, progress_
     cap.release()
     return audio_path, images, duration
 
+@st.cache_resource(max_entries=1)
+def get_whisper_model(model_size: str):
+    """Load one Whisper model and reuse it across presentation evaluations."""
+    return WhisperModel(model_size, device="cpu", compute_type="int8")
+
+
 def transcribe(audio_path: Path, model_size: str, progress_callback=None, duration: float = 0):
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    model = get_whisper_model(model_size)
     if progress_callback:
         progress_callback(10, "Transcribing speech locally", "Speech model loaded; processing recognized segments…")
     segments, info = model.transcribe(str(audio_path), beam_size=5, word_timestamps=False, vad_filter=True)
@@ -361,10 +367,10 @@ def remove_out_of_scope_content(category, assessment):
         cleaned["limitations"] = "Some generated content was withheld because it crossed rubric-category boundaries."
     return cleaned, removed
 
-def validate_category_claims(text_model, category, assessment, evidence):
+def validate_category_claims(text_model, category, assessment, evidence_json):
     prompt = f'''Audit BOTH factual support and rubric-category relevance in this {category} assessment. CATEGORY DEFINITION: {CATEGORY_SCOPE[category]} A claim can be factually true yet irrelevant to this category. Repeated fillers may be supported by a transcript but are NOT Word Choice evidence; intonation/flat tone is NOT Word Choice evidence; vocabulary quality is NOT Fluency evidence. Review rationale, evidence, positive_observations, actionable_feedback, adjacent_level_reasoning, and limitations. Flag category-irrelevant claims separately from unsupported claims. Category contamination in rationale, evidence, or adjacent_level_reasoning is material and requires instructor review of the score. Do not change the score.
 DRAFT: {json.dumps(assessment, ensure_ascii=False)}
-EVIDENCE: {json.dumps(evidence, ensure_ascii=False)[:18000]}
+EVIDENCE: {evidence_json[:18000]}
 Flag unsupported inferences, invented quotations, incorrect values, and claims stronger than evidence. Absence of a detected event is not proof it never happened. Acoustic measures do not prove perceived loudness or effective intonation. Tracking does not prove eye contact, intent, audience focus, or strategic gesture meaning. Transcripts may contain recognition errors. Do not change the score.
 Return ONLY JSON with keys status (pass or revise), supported_claims (list), unsupported_claims (list), irrelevant_claims (list), corrections (list), score_review_required (boolean).'''
     audit = json_from_text(ollama_chat(text_model, [{"role": "user", "content": prompt}], num_ctx=8192, num_predict=400))
@@ -423,6 +429,7 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
     speech_metrics = speech_statistics(segments, duration)
     alignment = align_speech_and_motion(audio_metrics, visual_tracking)
     categories = {}
+    guide_context = guide_prompt_context(grading_guide)
     for category_index, (name, rubric) in enumerate(RUBRIC.items()):
         category_start = 70 + category_index * 7.5
         if progress_callback:
@@ -440,14 +447,15 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
         else:
             evidence = {"body_hand_tracking": compact_visual_tracking(visual_tracking), "sampled_frame_observations": visual_notes[:12000], "speech_motion_alignment": alignment[:50]}
             has_evidence = visual_tracking.get("observations", 0) > 0 or (bool(images) and bool(visual_notes.strip()))
+        evidence_json = json.dumps(evidence, ensure_ascii=False)
         levels = "\n".join(f"Level {n}: {desc}" for n, desc in rubric["levels"].items())
         prompt = f"""Assess ONLY {name} for a university presentation.
 Instructor-approved interpretation guidance (supplemental, NOT the official rubric; examples must not predetermine scores):
-{guide_prompt_context(grading_guide)}
+{guide_context}
 Official rubric ({rubric['sub']}):
 {levels}
 Evidence:
-{json.dumps(evidence, ensure_ascii=False)[:20000]}
+{evidence_json[:20000]}
 CATEGORY SCOPE — STRICT SEPARATION:
 {CATEGORY_SCOPE[name]}
 - Base this category's score ONLY on the criteria named above. Do not import evidence from another category, even if factually correct.
@@ -530,7 +538,7 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
                 try:
                     if progress_callback:
                         progress_callback(category_start + 4.8, f"Validating {name} evidence", "Checking factual support and category boundaries…")
-                    audit = validate_category_claims(text_model, name, candidate, evidence)
+                    audit = validate_category_claims(text_model, name, candidate, evidence_json)
                     audit_text = json.dumps(audit, ensure_ascii=False)
                     if re.search(CATEGORY_SCOPE_FORBIDDEN[name], audit_text, re.I):
                         scope_content_removed = True
@@ -591,7 +599,7 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
             progress_callback(category_start + 7.5, f"Completed {name}", "Moving to the next independent rubric category…")
     strengths = [f"{n}: {point}" for n, v in categories.items() for point in v.get("positive_observations", [])]
     improvements = [f"{n}: {point}" for n, v in categories.items() for point in v.get("actionable_feedback", [])]
-    return {"categories": categories, "strengths": strengths[:6], "improvements": improvements[:6], "overall_comments": "Each rubric category was assessed independently. Instructor review is required.", "transcript_language": "See detected language reported during transcription.", "grading_guide": {"path": str(GUIDE_PATH), "approved_guidelines_used": len(grading_guide.get("approved_guidelines", [])), "borderline_decisions_used": len(grading_guide.get("borderline_decisions", []))}}, visual_notes, alignment
+    return {"categories": categories, "strengths": strengths[:6], "improvements": improvements[:6], "overall_comments": "Each rubric category was assessed independently. Instructor review is required.", "transcript_language": "See detected language reported during transcription.", "grading_guide": {"path": str(GUIDE_PATH), "approved_guidelines_used": len(grading_guide.get("approved_guidelines", [])), "borderline_decisions_used": len(grading_guide.get("borderline_decisions", []))}}, visual_notes, alignment, speech_metrics
 st.title("Presentation Grader — Local AI")
 st.caption("Local processing · student video and transcript stay on this computer · application code checks for verified updates at startup")
 st.warning(
@@ -606,7 +614,6 @@ with st.sidebar:
     text_choices = {
         "Recommended — Qwen 2.5 7B (about 4.7 GB)": "qwen2.5:7b",
         "Compact — Qwen 2.5 3B (about 1.9 GB)": "qwen2.5:3b",
-        "Advanced — Qwen 2.5 7B (about 4.7 GB)": "qwen2.5:7b",
     }
     vision_choices = {
         "Compact — Qwen 2.5 VL 3B (about 3.2 GB)": "qwen2.5vl:3b",
@@ -687,7 +694,7 @@ if video and st.button("Analyze presentation", type="primary"):
                 report_progress(57, "Checking the visual analysis model", "Confirming that the selected vision model is available…")
                 ensure_ollama_model(vision_model)
                 status.update(label="Running local rubric analysis…")
-                result, visual_notes, speech_motion_alignment = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking, grading_guide, report_progress)
+                result, visual_notes, speech_motion_alignment, speech_metrics = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking, grading_guide, report_progress)
                 report_progress(100, "Analysis complete", "All four separate rubric assessments and their evidence checks have finished.")
                 status.update(label="Analysis complete", state="complete")
             result["transcript"] = transcript
@@ -695,7 +702,7 @@ if video and st.button("Analyze presentation", type="primary"):
             result["body_hand_tracking"] = visual_tracking
             result["speech_motion_alignment"] = speech_motion_alignment
             result["audio_measurements"] = audio_metrics
-            result["speech_timing_metrics"] = speech_statistics(segments, duration)
+            result["speech_timing_metrics"] = speech_metrics
             result["video_duration_seconds"] = duration
             result["analysis_method"] = "Whisper + Praat/Parselmouth timestamped acoustic features + MediaPipe pose/hand tracking + OpenCV frames + local Ollama text/vision models"
             result["human_review_required"] = True
