@@ -7,6 +7,7 @@ import parselmouth
 
 from media_analysis import (
     _match_hand_displacements,
+    _summarize_tracking_windows,
     align_speech_and_motion,
     analyze_audio,
     speech_statistics,
@@ -43,6 +44,22 @@ class MediaAnalysisTests(unittest.TestCase):
         self.assertEqual(len(result["recognized_segment_gaps_over_0_35_seconds"]), 1)
         self.assertAlmostEqual(result["approx_wpm_during_recognized_segments"], 96.0)
         self.assertIn("not proof", result["limits"])
+
+    def test_tracking_windows_are_bucketed_at_five_second_boundaries(self):
+        observations = [
+            {"time_seconds": 0.0, "pose": {"visible": True, "shoulder_line_tilt_degrees": 2.0, "torso_lateral_offset_over_torso_height": None, "nose_offset_from_shoulder_center_in_shoulder_widths": None}, "hand_count": 1, "hand_motion_detected": True, "shoulder_center_shift_since_previous_observation": 0.1},
+            {"time_seconds": 4.9, "pose": {"visible": False, "shoulder_line_tilt_degrees": None, "torso_lateral_offset_over_torso_height": None, "nose_offset_from_shoulder_center_in_shoulder_widths": None}, "hand_count": 0, "hand_motion_detected": False, "shoulder_center_shift_since_previous_observation": None},
+            {"time_seconds": 5.0, "pose": {"visible": True, "shoulder_line_tilt_degrees": 4.0, "torso_lateral_offset_over_torso_height": 0.2, "nose_offset_from_shoulder_center_in_shoulder_widths": 0.1}, "hand_count": 2, "hand_motion_detected": False, "shoulder_center_shift_since_previous_observation": 0.2},
+        ]
+
+        windows = _summarize_tracking_windows(observations, 6.0, 1.0)
+
+        self.assertEqual(len(windows), 2)
+        self.assertEqual(windows[0]["samples"], 2)
+        self.assertEqual(windows[0]["pose_landmark_detection_percent"], 50.0)
+        self.assertEqual(windows[1]["start_seconds"], 5.0)
+        self.assertEqual(windows[1]["samples"], 1)
+        self.assertEqual(windows[1]["hand_detection_percent"], 100.0)
 
     def test_hand_positions_are_matched_between_observations(self):
         distances = _match_hand_displacements(
