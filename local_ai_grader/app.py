@@ -477,28 +477,54 @@ FEEDBACK QUALITY:
 - "limitations" is reserved for uncertainty in the evidence or method; it is NOT a list of things the presenter did poorly.
 Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "rationale":"balanced explanation", "evidence":["specific evidence"], "positive_observations":["specific demonstrated strengths"], "actionable_feedback":["specific improvement only if warranted; otherwise empty"], "adjacent_level_reasoning":"...", "limitations":"evidence/method uncertainty only"}}"""
         item, error = None, ""
+        attempt_diagnostics = []
         for attempt in range(2):
-            retry = "" if attempt == 0 else f" Your previous answer failed validation: {error}. Correct it using the supplied evidence; do not invent a score."
-            raw = ollama_chat(text_model, [{"role": "user", "content": prompt + retry}], num_ctx=8192, num_predict=900)
-            if progress_callback:
-                progress_callback(category_start + 3.2, f"Scoring {name}", "Assessment response received; checking its evidence and rubric scope…")
+            retry = "" if attempt == 0 else f" Your previous answer failed validation: {error}. Correct it using the supplied evidence; return complete JSON and do not invent a score."
+            raw = ""
             try:
+                # Fluency needs room for transcript-specific evidence and the
+                # required comparison of adjacent rubric levels.
+                output_limit = 1400 if name == "Fluency" else 1000
+                raw = ollama_chat(text_model, [{"role": "user", "content": prompt + retry}], num_ctx=8192, num_predict=output_limit)
+                if progress_callback:
+                    progress_callback(category_start + 3.2, f"Scoring {name}", "Assessment response received; checking its evidence and rubric scope…")
                 candidate = json_from_text(raw)
                 score = candidate.get("score")
-                bad_score = score is not None and (isinstance(score, bool) or not isinstance(score, int) or score not in (1, 2, 3, 4))
+                errors = []
+                if score is not None and (isinstance(score, bool) or not isinstance(score, int) or score not in (1, 2, 3, 4)):
+                    errors.append("invalid_score_value")
                 fields = " ".join(str(candidate.get(k, "")) for k in ("rationale", "evidence", "adjacent_level_reasoning", "limitations")).lower()
-                contradiction = name in ("Fluency", "Word Choice") and has_evidence and any(x in fields for x in ("no usable speech evidence", "no speech segments", "transcript does not contain", "transcript lacks"))
-                bad_abstention = has_evidence and score is None
-                unsupported_score = not has_evidence and score is not None
-                missing = any(not candidate.get(k) for k in ("rationale", "evidence", "adjacent_level_reasoning", "limitations")) or not isinstance(candidate.get("positive_observations", []), list) or not isinstance(candidate.get("actionable_feedback", []), list)
-                if bad_score or contradiction or bad_abstention or unsupported_score or missing:
-                    error = "response contradicted available evidence, omitted required reasoning, or returned an unsupported score"
+                if name in ("Fluency", "Word Choice") and has_evidence and any(x in fields for x in ("no usable speech evidence", "no speech segments", "transcript does not contain", "transcript lacks")):
+                    errors.append("response_claimed_speech_evidence_was_missing")
+                if has_evidence and score is None:
+                    errors.append("abstained_despite_available_category_evidence")
+                if not has_evidence and score is not None:
+                    errors.append("assigned_score_without_category_evidence")
+                for field in ("rationale", "evidence", "adjacent_level_reasoning", "limitations"):
+                    if not candidate.get(field):
+                        errors.append("missing_or_empty_" + field)
+                for field in ("evidence", "positive_observations", "actionable_feedback"):
+                    if field in candidate and not isinstance(candidate[field], list):
+                        errors.append("invalid_type_" + field)
+                for field in ("positive_observations", "actionable_feedback"):
+                    if field not in candidate:
+                        errors.append("missing_" + field)
+                if errors:
+                    error = "; ".join(errors)
+                    attempt_diagnostics.append({
+                        "attempt": attempt + 1, "stage": "assessment_validation",
+                        "errors": errors, "raw_response_excerpt": raw[:1800]
+                    })
                     continue
                 # Deterministic category-boundary check: do not rely on the same
                 # language model to police its own cross-category leakage.
                 scope_violations = category_scope_violations(name, candidate)
                 if scope_violations and attempt == 0:
-                    error = "Your draft included content outside this rubric category. Rewrite every field using only the category scope; do not mention or evaluate other rubric dimensions."
+                    error = "category_scope_violation:" + ",".join(scope_violations)
+                    attempt_diagnostics.append({
+                        "attempt": attempt + 1, "stage": "category_scope_validation",
+                        "errors": [error], "raw_response_excerpt": raw[:1800]
+                    })
                     continue
                 candidate, scope_content_removed = remove_out_of_scope_content(name, candidate)
                 try:
@@ -536,9 +562,30 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
                 item = candidate
                 break
             except (ValueError, json.JSONDecodeError) as exc:
-                error = f"invalid JSON: {exc}"
+                error = "invalid_json:" + str(exc)
+                attempt_diagnostics.append({
+                    "attempt": attempt + 1, "stage": "json_parsing",
+                    "errors": [error], "raw_response_excerpt": raw[:1800]
+                })
+            except Exception as exc:
+                error = "model_request_error:" + str(exc)
+                attempt_diagnostics.append({
+                    "attempt": attempt + 1, "stage": "model_request",
+                    "errors": [error], "raw_response_excerpt": raw[:1800]
+                })
         if item is None:
-            item = {"score": None, "confidence": "low", "rationale": "No grade is recommended because the model failed evidence validation.", "evidence": [], "adjacent_level_reasoning": "A defensible adjacent-level comparison was not returned.", "limitations": error or "The model did not return a valid assessment."}
+            item = {
+                "score": None, "confidence": "low",
+                "rationale": "No grade is recommended because the assessment did not pass validation.",
+                "evidence": [],
+                "adjacent_level_reasoning": "A defensible adjacent-level comparison was not returned.",
+                "limitations": "The model response could not be validated. See assessment diagnostics for the exact failure.",
+                "assessment_diagnostics": {
+                    "failure_stage": attempt_diagnostics[-1]["stage"] if attempt_diagnostics else "unknown",
+                    "attempts": attempt_diagnostics,
+                    "final_validation_errors": error or "No diagnostic details were captured."
+                }
+            }
         categories[name] = item
         if progress_callback:
             progress_callback(category_start + 7.5, f"Completed {name}", "Moving to the next independent rubric category…")
@@ -688,6 +735,12 @@ if "result" in st.session_state:
             st.markdown(f"**Adjacent-level reasoning:** {item['adjacent_level_reasoning']}")
         if item.get("limitations"):
             st.markdown(f"**Limitations:** {item['limitations']}")
+        diagnostics = item.get("assessment_diagnostics", {})
+        if diagnostics:
+            with st.expander("Assessment failure diagnostics", expanded=True):
+                st.caption(f"Failure stage: {diagnostics.get('failure_stage', 'unknown')}")
+                st.json(diagnostics.get("final_validation_errors", "No details captured."))
+                st.json(diagnostics.get("attempts", []))
         audit = item.get("evidence_validation", {})
         audit_status = audit.get("status", "not run")
         st.caption(f"Evidence-to-claim validation: {audit_status}")
