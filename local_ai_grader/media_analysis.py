@@ -51,15 +51,23 @@ def analyze_audio(audio_path: Path, segments: list[dict]) -> dict:
         start, end = float(seg["start"]), float(seg["end"])
         if end <= start:
             continue
-        pmask = (pitch_times >= start) & (pitch_times <= end) & (pitch_values > 0)
-        imask = (intensity_times >= start) & (intensity_times <= end)
-        p = pitch_values[pmask]
-        intensity = _finite(intensity_values[imask])
+        pitch_start = int(np.searchsorted(pitch_times, start, side="left"))
+        pitch_end = int(np.searchsorted(pitch_times, end, side="right"))
+        segment_pitch_times = pitch_times[pitch_start:pitch_end]
+        segment_pitch_values = pitch_values[pitch_start:pitch_end]
+        voiced_mask = segment_pitch_values > 0
+        p = segment_pitch_values[voiced_mask]
+        voiced_times = segment_pitch_times[voiced_mask]
+
+        intensity_start = int(np.searchsorted(intensity_times, start, side="left"))
+        intensity_end = int(np.searchsorted(intensity_times, end, side="right"))
+        intensity = _finite(intensity_values[intensity_start:intensity_end])
         if not len(p) and not len(intensity):
             continue
 
-        first_half = p[pitch_times[pmask] <= start + (end - start) / 2] if len(p) else np.array([])
-        second_half = p[pitch_times[pmask] > start + (end - start) / 2] if len(p) else np.array([])
+        midpoint = start + (end - start) / 2
+        first_half = p[voiced_times <= midpoint] if len(p) else np.array([])
+        second_half = p[voiced_times > midpoint] if len(p) else np.array([])
         pitch_change = None
         if len(first_half) and len(second_half):
             first_median, second_median = np.median(first_half), np.median(second_half)
@@ -179,6 +187,43 @@ def _match_hand_displacements(previous, current):
         used_current.add(ci)
         distances.append(distance)
     return distances
+
+
+def _summarize_tracking_windows(observations: list[dict], duration: float, interval: float) -> list[dict]:
+    """Aggregate five-second tracking windows in one pass over observations."""
+    window_size = 5.0
+    end_time = max(duration, observations[-1]["time_seconds"] + interval)
+    buckets = {}
+    for observation in observations:
+        window_index = max(0, int(float(observation["time_seconds"]) // window_size))
+        buckets.setdefault(window_index, []).append(observation)
+
+    windows = []
+    for window_index in range(math.ceil(end_time / window_size)):
+        cursor = window_index * window_size
+        subset = buckets.get(window_index, [])
+        if not subset:
+            continue
+        pose_rate = sum(bool(o["pose"]["visible"]) for o in subset) / len(subset)
+        hand_rate = sum(o["hand_count"] > 0 for o in subset) / len(subset)
+        motion_rate = sum(o["hand_motion_detected"] for o in subset) / len(subset)
+        tilt = [o["pose"].get("shoulder_line_tilt_degrees") for o in subset if o["pose"].get("shoulder_line_tilt_degrees") is not None]
+        torso = [o["pose"].get("torso_lateral_offset_over_torso_height") for o in subset if o["pose"].get("torso_lateral_offset_over_torso_height") is not None]
+        head_offset = [o["pose"].get("nose_offset_from_shoulder_center_in_shoulder_widths") for o in subset if o["pose"].get("nose_offset_from_shoulder_center_in_shoulder_widths") is not None]
+        body_shift = [o["shoulder_center_shift_since_previous_observation"] for o in subset if o["shoulder_center_shift_since_previous_observation"] is not None]
+        windows.append({
+            "start_seconds": round(cursor, 1),
+            "end_seconds": round(min(cursor + window_size, end_time), 1),
+            "samples": len(subset),
+            "pose_landmark_detection_percent": round(100 * pose_rate, 1),
+            "hand_detection_percent": round(100 * hand_rate, 1),
+            "hand_position_change_percent": round(100 * motion_rate, 1),
+            "median_shoulder_line_tilt_degrees": _median(tilt),
+            "median_torso_lateral_offset_ratio": _median(torso),
+            "median_nose_offset_from_shoulder_center_ratio": _median(head_offset),
+            "median_shoulder_center_shift_per_observation": _median(body_shift)
+        })
+    return windows
 
 
 def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
@@ -328,33 +373,7 @@ def track_body_and_hands(video_path: str, target_fps: float = 5.0) -> dict:
             "limitations": ["No continuous landmark observations were available."]
         }
 
-    window_size = 5.0
-    windows = []
-    end_time = max(duration, observations[-1]["time_seconds"] + interval)
-    cursor = 0.0
-    while cursor < end_time:
-        subset = [o for o in observations if cursor <= o["time_seconds"] < cursor + window_size]
-        if subset:
-            pose_rate = sum(bool(o["pose"]["visible"]) for o in subset) / len(subset)
-            hand_rate = sum(o["hand_count"] > 0 for o in subset) / len(subset)
-            motion_rate = sum(o["hand_motion_detected"] for o in subset) / len(subset)
-            tilt = [o["pose"].get("shoulder_line_tilt_degrees") for o in subset if o["pose"].get("shoulder_line_tilt_degrees") is not None]
-            torso = [o["pose"].get("torso_lateral_offset_over_torso_height") for o in subset if o["pose"].get("torso_lateral_offset_over_torso_height") is not None]
-            head_offset = [o["pose"].get("nose_offset_from_shoulder_center_in_shoulder_widths") for o in subset if o["pose"].get("nose_offset_from_shoulder_center_in_shoulder_widths") is not None]
-            body_shift = [o["shoulder_center_shift_since_previous_observation"] for o in subset if o["shoulder_center_shift_since_previous_observation"] is not None]
-            windows.append({
-                "start_seconds": round(cursor, 1),
-                "end_seconds": round(min(cursor + window_size, end_time), 1),
-                "samples": len(subset),
-                "pose_landmark_detection_percent": round(100 * pose_rate, 1),
-                "hand_detection_percent": round(100 * hand_rate, 1),
-                "hand_position_change_percent": round(100 * motion_rate, 1),
-                "median_shoulder_line_tilt_degrees": _median(tilt),
-                "median_torso_lateral_offset_ratio": _median(torso),
-                "median_nose_offset_from_shoulder_center_ratio": _median(head_offset),
-                "median_shoulder_center_shift_per_observation": _median(body_shift)
-            })
-        cursor += window_size
+    windows = _summarize_tracking_windows(observations, duration, interval)
 
     # Cluster adjacent movement observations into timestamped intervals.
     active_times = [o["time_seconds"] for o in observations if o["hand_motion_detected"]]
