@@ -249,11 +249,36 @@ def make_transcript(segments):
     return "\n".join(f"[{s['start']:.1f}-{s['end']:.1f}s] {s['text']}" for s in segments)
 
 def json_from_text(text: str):
+    """Parse model JSON, tolerating a bare abstention marker in a score field."""
     text = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", text.strip(), flags=re.I)
     match = re.search(r"\{.*\}", text, flags=re.S)
     if not match:
-        raise ValueError("The local model did not return valid JSON. Try again or use a different model.")
-    return json.loads(match.group(0))
+        excerpt = text[:300].replace("\\n", " ")
+        raise ValueError(f"The local model did not return a JSON object. Response began: {excerpt!r}")
+    payload = match.group(0)
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as original_error:
+        # Some local models emit score: abstained_insufficient_visual_evidence
+        # instead of the required JSON null. Normalize only that bare token form.
+        repaired = re.sub(
+            r'(:\\s*)abstained_[A-Za-z0-9_-]+(?=\\s*[,}])',
+            r'\\1null',
+            payload,
+            flags=re.I,
+        )
+        if repaired != payload:
+            try:
+                parsed = json.loads(repaired)
+                if isinstance(parsed, dict):
+                    parsed.setdefault("_parser_repair", "A bare abstained_* value was normalized to null; review the raw response diagnostics.")
+                return parsed
+            except json.JSONDecodeError:
+                pass
+        raise ValueError(
+            f"Model response contained malformed JSON ({original_error.msg} at character {original_error.pos}). "
+            f"Response excerpt: {payload[:500]!r}"
+        ) from original_error
 
 def rubric_prompt(transcript: str, duration: float, speech_metrics: dict, audio_metrics: dict, visual_tracking: dict, speech_motion_alignment: list[dict], vision_notes: str):
     levels = "\n".join(
@@ -478,6 +503,7 @@ SCORING CALIBRATION:
 - Nonverbal Communication: distinguish occasional stiffness, limited gestures, or occasional text focus (Level 2 descriptors) from consistent text focus or consistently distracting mannerisms (Level 1 descriptors). Sparse samples/tracking cannot establish these frequencies unless the evidence actually supports them.
 - Word Choice: distinguish jargon that obscures meaning or oversimplification (Level 2) from imprecise/incorrect terminology or distorted concepts (Level 1). Do not penalize accurate technical vocabulary merely for being specialized.
 GENERAL EVIDENCE RULES: use only evidence above; score this category independently. The transcript is {"NONEMPTY and contains usable spoken words" if transcript.strip() else "EMPTY"}. Never claim there is no transcript or no speech when it is nonempty. Fluency: use approximate rate/timing cautiously; do not invent stammering or fillers. Word Choice: quote exact transcript phrases. Vocal Delivery: use actual acoustic measurements, but they do not prove perceived loudness or effective intonation. Nonverbal: use only visible tracking/frame observations; transcript availability is irrelevant. Do not infer eye contact, intent, engagement or gesture meaning. Assign 1–4 only when supported by this category's evidence; use null only when genuinely insufficient. Never use 1 or null as a placeholder. Explain why the score fits and why the nearest adjacent level is less supported.
+OUTPUT FORMAT IS MANDATORY: Return one syntactically valid JSON object and nothing else. The score value must be the JSON number 1, 2, 3, or 4, or the JSON literal null. Never output tokens such as abstained_, abstain, N/A, or explanatory text in place of JSON null. Do not wrap the object in Markdown fences.
 FEEDBACK QUALITY:
 - Identify at least one genuine, specific strength supported by the supplied evidence when one is present. Do not invent praise or use generic compliments.
 - "actionable_feedback" and the overall "Areas for the presenter to improve" section MUST address the presenter and the presentation itself. Phrase each item as advice to the presenter (for example, "Vary your intonation to emphasize key points" or "Contextualize specialized terms for a broad audience").
@@ -487,7 +513,8 @@ FEEDBACK QUALITY:
 - Separate demonstrated strengths from presenter improvement opportunities. A presentation can have a strong score and still have a useful, limited suggestion; it does not need a manufactured weakness in every category.
 - Write feedback in a balanced, respectful instructor voice, addressing the presenter directly where natural ("you could..." / "consider..."). Explain the impact of a meaningful issue without overstating it. Avoid repetitive, exhaustive nitpicking.
 - "limitations" is reserved for uncertainty in the evidence or method; it is NOT a list of things the presenter did poorly.
-Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "rationale":"balanced explanation", "evidence":["specific evidence"], "positive_observations":["specific demonstrated strengths"], "actionable_feedback":["specific improvement only if warranted; otherwise empty"], "adjacent_level_reasoning":"...", "limitations":"evidence/method uncertainty only"}}"""
+Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "rationale":"balanced explanation", "evidence":["specific evidence"], "positive_observations":["specific demonstrated strengths"], "actionable_feedback":["specific improvement only if warranted; otherwise empty"], "adjacent_level_reasoning":"...", "limitations":"evidence/method uncertainty only"}}
+For Nonverbal Communication specifically: if visual evidence is insufficient, set "score": null (the literal JSON null), explain the evidence limitation in "limitations", and still return every required key. Do not return a standalone abstention token."""
         item, error = None, ""
         attempt_diagnostics = []
         for attempt in range(2):
