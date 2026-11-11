@@ -14,6 +14,7 @@ import requests
 import streamlit as st
 from faster_whisper import WhisperModel
 from media_analysis import analyze_audio, align_speech_and_motion, speech_statistics, track_body_and_hands
+from prompt_helpers import category_prompt_instructions, ensure_nonempty_limitations
 
 st.set_page_config(page_title="Presentation Grader — Local AI", page_icon="🎓", layout="wide")
 
@@ -526,18 +527,6 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
             has_evidence = visual_profile["usable_visual_evidence"]
         evidence_json = json.dumps(evidence, ensure_ascii=False)
         levels = "\n".join(f"Level {n}: {desc}" for n, desc in rubric["levels"].items())
-        nonverbal_instructions = ""
-        if name == "Nonverbal Communication":
-            nonverbal_instructions = """
-NONVERBAL EVIDENCE INTERPRETATION — IMPORTANT:
-- Use the sampled-frame descriptions and pose tracking as TWO INDEPENDENT visual evidence sources. A weak result from one does not erase usable evidence from the other.
-- The sampled-frame notes are direct descriptions of selected video images. If they describe the presenter’s visible posture, body orientation, or arm/hand positions, discuss those observations even when MediaPipe hand detection is low.
-- A low or zero hand-detection percentage means the hand tracker did not reliably detect hands; it does NOT establish that the presenter made no gestures and does NOT invalidate visible body/posture descriptions.
-- Pose-detection percentage is coverage, not a performance score. Report it as a limitation and do not treat undetected samples as evidence of poor body language.
-- Do not use speech-motion alignment, transcript content, speech timing, pitch, volume, intonation, or other audio information. Those data are not part of this category.
-- Do not claim eye contact, audience focus, intent, strategic emphasis, or gesture meaning from camera-facing posture or movement alone.
-- If the sampled frames show the presenter and/or pose detections are available, make a cautious best-fit 1–4 recommendation from the visible criteria rather than abstaining solely because hand tracking is weak. Use null only if the presenter is not sufficiently visible or the visual observations genuinely cannot support even a tentative level.
-"""
         prompt = f"""Assess ONLY {name} for a university presentation.
 Instructor-approved interpretation guidance (supplemental, NOT the official rubric; examples must not predetermine scores):
 {guide_context}
@@ -548,9 +537,8 @@ Evidence:
 CATEGORY SCOPE — STRICT SEPARATION:
 {CATEGORY_SCOPE[name]}
 - Base this category's score ONLY on the criteria named above. Do not import evidence from another category, even if factually correct.
-- VOCAL DELIVERY EXCLUSION: Do not discuss, quote, count, characterize, or evaluate filler words, disfluencies, vocabulary, terminology, technical terms, jargon, or word choice. These are not Vocal Delivery criteria. The Vocal Delivery evidence payload contains acoustic measurements only; assess only volume and intonation for emphasis. If an excluded topic seems relevant, omit it entirely rather than mentioning it as a limitation or comparison.
 - Apply this boundary to score rationale, evidence, positive observations, actionable feedback, limitations, and adjacent-level reasoning.
-- Word Choice must never be justified or penalized by intonation, tone, volume, pauses, pace, stammering, or fillers.
+{category_prompt_instructions(name)}
 SCORING CALIBRATION:
 - Judge the overall performance in this category against the complete official level descriptions. Do not treat the rubric as a mechanical checklist or count isolated imperfections.
 - A descriptor saying a performance "may" include a behavior describes what can be consistent with that level; it is not an automatic score trigger. Explain why the observed behavior is representative or consequential enough to make that level the best fit.
@@ -563,8 +551,7 @@ SCORING CALIBRATION:
 - Fluency: the rubric distinguishes Level 2's occasional issues from Level 1's frequent issues that disrupt cadence or obscure emphasis. Use actual transcript/timing evidence and do not overstate frequency. A WPM estimate alone does not determine a score.
 - Nonverbal Communication: distinguish occasional stiffness, limited gestures, or occasional text focus (Level 2 descriptors) from consistent text focus or consistently distracting mannerisms (Level 1 descriptors). Sparse samples/tracking cannot establish these frequencies unless the evidence actually supports them.
 - Word Choice: distinguish jargon that obscures meaning or oversimplification (Level 2) from imprecise/incorrect terminology or distorted concepts (Level 1). Do not penalize accurate technical vocabulary merely for being specialized.
-GENERAL EVIDENCE RULES: use only evidence above; score this category independently. The transcript is {"NONEMPTY and contains usable spoken words" if transcript.strip() else "EMPTY"}. Never claim there is no transcript or no speech when it is nonempty. Fluency: use approximate rate/timing cautiously; do not invent stammering or fillers. Word Choice: quote exact transcript phrases. Vocal Delivery: use actual acoustic measurements, but they do not prove perceived loudness or effective intonation. Nonverbal: use only visible tracking/frame observations; transcript availability is irrelevant. Do not infer eye contact, intent, engagement or gesture meaning. Assign 1–4 only when supported by this category's evidence; use null only when genuinely insufficient. Never use 1 or null as a placeholder. Explain why the score fits and why the nearest adjacent level is less supported.
-{nonverbal_instructions}
+GENERAL EVIDENCE RULES: use only the evidence supplied for this category; score it independently. Ignore information from other rubric categories even if it appears elsewhere in the presentation data. Assign 1–4 only when supported by this category's evidence; use null only when the relevant evidence is genuinely insufficient. Never use 1 or null as a placeholder for uncertainty. Explain why the score fits and why the nearest adjacent level is less supported.
 OUTPUT FORMAT IS MANDATORY: Return one syntactically valid JSON object and nothing else. The score value must be the JSON number 1, 2, 3, or 4, or the JSON literal null. Never output tokens such as abstained_, abstain, N/A, or explanatory text in place of JSON null. Do not wrap the object in Markdown fences.
 FEEDBACK QUALITY:
 - Identify at least one genuine, specific strength supported by the supplied evidence when one is present. Do not invent praise or use generic compliments.
@@ -576,7 +563,7 @@ FEEDBACK QUALITY:
 - Write feedback in a balanced, respectful instructor voice, addressing the presenter directly where natural ("you could..." / "consider..."). Explain the impact of a meaningful issue without overstating it. Avoid repetitive, exhaustive nitpicking.
 - "limitations" is reserved for uncertainty in the evidence or method; it is NOT a list of things the presenter did poorly.
 Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "rationale":"balanced explanation", "evidence":["specific evidence"], "positive_observations":["specific demonstrated strengths"], "actionable_feedback":["specific improvement only if warranted; otherwise empty"], "adjacent_level_reasoning":"...", "limitations":"evidence/method uncertainty only"}}
-For Nonverbal Communication specifically: if visual evidence is insufficient, set "score": null (the literal JSON null), explain the evidence limitation in "limitations", and still return every required key. Do not return a standalone abstention token."""
+"""
         item, error = None, ""
         attempt_diagnostics = []
         for attempt in range(2):
@@ -604,6 +591,7 @@ For Nonverbal Communication specifically: if visual evidence is insufficient, se
                 if progress_callback:
                     progress_callback(category_start + 3.2, f"Scoring {name}", "Assessment response received; checking its evidence and rubric scope…")
                 candidate = json_from_text(raw)
+                candidate = ensure_nonempty_limitations(candidate)
                 score = candidate.get("score")
                 errors = []
                 if score is not None and (isinstance(score, bool) or not isinstance(score, int) or score not in (1, 2, 3, 4)):
