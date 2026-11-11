@@ -196,7 +196,7 @@ def ffmpeg_executable() -> str:
         raise FileNotFoundError("Bundled FFmpeg could not be located.") from exc
 
 
-def extract_media(video_path: str, work: Path, sample_count: int = 24):
+def extract_media(video_path: str, work: Path, sample_count: int = 24, progress_callback=None):
     audio_path = work / "audio.wav"
     subprocess.run(
         [ffmpeg_executable(), "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", str(audio_path)],
@@ -207,8 +207,11 @@ def extract_media(video_path: str, work: Path, sample_count: int = 24):
     frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
     duration = frame_count / fps if fps else 0
     images = []
+    sample_times = [duration * (i + 0.5) / sample_count for i in range(sample_count)] if duration else []
+    if progress_callback:
+        progress_callback(2, "Extracting audio and video", "Audio extracted; sampling representative video frames…")
     if duration:
-        for sec in [duration * (i + 0.5) / sample_count for i in range(sample_count)]:
+        for sample_index, sec in enumerate(sample_times):
             cap.set(cv2.CAP_PROP_POS_MSEC, sec * 1000)
             ok, frame = cap.read()
             if ok:
@@ -218,15 +221,22 @@ def extract_media(video_path: str, work: Path, sample_count: int = 24):
                 ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 72])
                 if ok:
                     images.append({"time": round(sec, 1), "base64": base64.b64encode(encoded).decode("ascii")})
+            if progress_callback:
+                progress_callback(2 + 8 * (sample_index + 1) / max(1, len(sample_times)), "Extracting audio and video", f"Sampled frame {sample_index + 1} of {len(sample_times)}")
     cap.release()
     return audio_path, images, duration
 
-def transcribe(audio_path: Path, model_size: str):
+def transcribe(audio_path: Path, model_size: str, progress_callback=None, duration: float = 0):
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    if progress_callback:
+        progress_callback(10, "Transcribing speech locally", "Speech model loaded; processing recognized segments…")
     segments, info = model.transcribe(str(audio_path), beam_size=5, word_timestamps=False, vad_filter=True)
     result = []
     for seg in segments:
         result.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()})
+        if progress_callback and duration > 0:
+            fraction = min(1.0, max(0.0, seg.end / duration))
+            progress_callback(10 + 20 * fraction, "Transcribing speech locally", f"Processed approximately {fraction:.0%} of the recording")
     return result, info.language, info.language_probability
 
 def make_transcript(segments):
@@ -378,13 +388,15 @@ def compact_visual_tracking(tracking: dict) -> dict:
     return compact
 
 
-def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict, visual_tracking: dict, grading_guide: dict):
+def run_grading(text_model: str, vision_model: str, transcript: str, duration: float, segments: list[dict], images: list[dict], audio_metrics: dict, visual_tracking: dict, grading_guide: dict, progress_callback=None):
     visual_notes = "No usable video frames were extracted."
     if images:
         observations = []
         # Multi-image requests preserve each timestamp while cutting sequential
         # vision-model round trips by roughly two thirds.
         batch_size = 3
+        if progress_callback:
+            progress_callback(60, "Analyzing sampled video frames", f"Sending {len(images)} sampled frames to the vision model in batches…")
         for offset in range(0, len(images), batch_size):
             batch = images[offset:offset + batch_size]
             manifest = "\n".join(
@@ -402,11 +414,19 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
                 "images": [image["base64"] for image in batch],
             }
             observations.append(ollama_chat(vision_model, [msg], num_ctx=8192, num_predict=500))
+            if progress_callback:
+                done = min(len(images), offset + len(batch))
+                progress_callback(60 + 10 * done / max(1, len(images)), "Analyzing sampled video frames", f"Completed vision batch {offset // batch_size + 1} of {(len(images) + batch_size - 1) // batch_size}")
         visual_notes = "\n".join(observations)
+    if progress_callback:
+        progress_callback(70, "Preparing rubric-specific evidence", "Audio, transcript, tracking, and visual evidence are ready.")
     speech_metrics = speech_statistics(segments, duration)
     alignment = align_speech_and_motion(audio_metrics, visual_tracking)
     categories = {}
-    for name, rubric in RUBRIC.items():
+    for category_index, (name, rubric) in enumerate(RUBRIC.items()):
+        category_start = 70 + category_index * 7.5
+        if progress_callback:
+            progress_callback(category_start + 0.2, f"Scoring {name}", "Generating this category's separate rubric assessment…")
         if name == "Fluency":
             evidence = {"transcript": transcript[:18000], "speech_metrics": speech_metrics}
             has_evidence = bool(transcript.strip()) and speech_metrics.get("transcript_word_count", 0) > 0
@@ -460,6 +480,8 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
         for attempt in range(2):
             retry = "" if attempt == 0 else f" Your previous answer failed validation: {error}. Correct it using the supplied evidence; do not invent a score."
             raw = ollama_chat(text_model, [{"role": "user", "content": prompt + retry}], num_ctx=8192, num_predict=900)
+            if progress_callback:
+                progress_callback(category_start + 3.2, f"Scoring {name}", "Assessment response received; checking its evidence and rubric scope…")
             try:
                 candidate = json_from_text(raw)
                 score = candidate.get("score")
@@ -480,6 +502,8 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
                     continue
                 candidate, scope_content_removed = remove_out_of_scope_content(name, candidate)
                 try:
+                    if progress_callback:
+                        progress_callback(category_start + 4.8, f"Validating {name} evidence", "Checking factual support and category boundaries…")
                     audit = validate_category_claims(text_model, name, candidate, evidence)
                     audit_text = json.dumps(audit, ensure_ascii=False)
                     if re.search(CATEGORY_SCOPE_FORBIDDEN[name], audit_text, re.I):
@@ -491,6 +515,8 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
                             "score_review_required": True
                         }
                     candidate["evidence_validation"] = audit
+                    if progress_callback:
+                        progress_callback(category_start + 7.0, f"Validating {name} evidence", "Evidence validation finished.")
                     if audit.get("score_review_required"):
                         candidate["score_review_required"] = True
                         candidate["confidence"] = "low"
@@ -514,6 +540,8 @@ Return ONLY JSON: {{"score": 1-4 or null, "confidence":"low|medium|high", "ratio
         if item is None:
             item = {"score": None, "confidence": "low", "rationale": "No grade is recommended because the model failed evidence validation.", "evidence": [], "adjacent_level_reasoning": "A defensible adjacent-level comparison was not returned.", "limitations": error or "The model did not return a valid assessment."}
         categories[name] = item
+        if progress_callback:
+            progress_callback(category_start + 7.5, f"Completed {name}", "Moving to the next independent rubric category…")
     strengths = [f"{n}: {point}" for n, v in categories.items() for point in v.get("positive_observations", [])]
     improvements = [f"{n}: {point}" for n, v in categories.items() for point in v.get("actionable_feedback", [])]
     return {"categories": categories, "strengths": strengths[:6], "improvements": improvements[:6], "overall_comments": "Each rubric category was assessed independently. Instructor review is required.", "transcript_language": "See detected language reported during transcription.", "grading_guide": {"path": str(GUIDE_PATH), "approved_guidelines_used": len(grading_guide.get("approved_guidelines", [])), "borderline_decisions_used": len(grading_guide.get("borderline_decisions", []))}}, visual_notes, alignment
@@ -578,25 +606,42 @@ if video and st.button("Analyze presentation", type="primary"):
             work = Path(tmp)
             video_path = work / video.name
             video_path.write_bytes(video.getbuffer())
-            with st.status("Extracting audio and video evidence…", expanded=True) as status:
-                audio_path, images, duration = extract_media(str(video_path), work, sample_count)
+            progress_bar = st.progress(0.0)
+            progress_label = st.empty()
+            progress_detail = st.empty()
+            def report_progress(percent, label, detail=""):
+                progress_bar.progress(min(1.0, max(0.0, percent / 100.0)))
+                progress_label.markdown(f"**{label}**")
+                if detail:
+                    progress_detail.caption(detail)
+            report_progress(0, "Preparing analysis", "The progress estimate is approximate; individual model requests can take time.")
+            with st.status("Analyzing presentation evidence…", expanded=True) as status:
+                report_progress(1, "Extracting audio and video", "Extracting the audio track and sampling representative frames…")
+                audio_path, images, duration = extract_media(str(video_path), work, sample_count, report_progress)
                 st.write(f"Video duration: {duration:.1f} seconds · frames sampled: {len(images)}")
                 status.update(label="Transcribing speech locally…")
-                segments, language, language_probability = transcribe(audio_path, whisper_size)
+                report_progress(10, "Transcribing speech locally", "Loading the selected speech-recognition model…")
+                segments, language, language_probability = transcribe(audio_path, whisper_size, report_progress, duration)
                 transcript = make_transcript(segments)
                 if not transcript.strip():
                     raise RuntimeError("No speech transcript was detected. Check the audio track or try a different Whisper model.")
                 st.write(f"Detected language: {language} (confidence {language_probability:.2f})")
                 status.update(label="Measuring pitch, intensity, and speech timing…")
+                report_progress(30, "Measuring vocal and speech features", "Calculating acoustic measurements and speech timing…")
                 audio_metrics = analyze_audio(audio_path, segments)
+                report_progress(38, "Tracking body and hand movement", f"Sampling the full video at {tracking_fps} fps; this stage may take a while…")
                 status.update(label=f"Tracking body and hand landmarks at {tracking_fps} fps…")
                 visual_tracking = track_body_and_hands(str(video_path), target_fps=float(tracking_fps))
+                report_progress(55, "Body and hand tracking complete", "Preparing local AI models…")
                 st.write(f"Tracked {visual_tracking.get('observations', 0)} time points; pose landmarks detected in {visual_tracking.get('pose_landmark_detection_percent', 0)}% of samples; hands detected in {visual_tracking.get('hand_detection_percent', 0)}%.")
                 status.update(label="Checking selected local AI models…")
+                report_progress(55, "Checking the rubric reasoning model", "Confirming that the selected local model is available…")
                 ensure_ollama_model(text_model)
+                report_progress(57, "Checking the visual analysis model", "Confirming that the selected vision model is available…")
                 ensure_ollama_model(vision_model)
                 status.update(label="Running local rubric analysis…")
-                result, visual_notes, speech_motion_alignment = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking, grading_guide)
+                result, visual_notes, speech_motion_alignment = run_grading(text_model, vision_model, transcript, duration, segments, images, audio_metrics, visual_tracking, grading_guide, report_progress)
+                report_progress(100, "Analysis complete", "All four separate rubric assessments and their evidence checks have finished.")
                 status.update(label="Analysis complete", state="complete")
             result["transcript"] = transcript
             result["visual_observations"] = visual_notes
