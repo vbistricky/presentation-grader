@@ -323,7 +323,7 @@ CATEGORY_SCOPE = {
 }
 CATEGORY_SCOPE_FORBIDDEN = {
     "Word Choice": r"\b(?:intonation|pitch|prosody|volume|loudness|pauses?|pacing|speech rate|speaking rate|words per minute|wpm|stammer(?:ing)?|fluency|filler words?|verbal fillers?)\b",
-    "Vocal Delivery": r"\b(?:filler words?|verbal fillers?|stammer(?:ing)?|unplanned pauses?|speech rate|speaking rate|words per minute|wpm|jargon|vocabulary|word choice|gestures?|eye contact)\b",
+    "Vocal Delivery": r"\b(?:filler(?:s|\s+words?)?|verbal fillers?|disfluenc\w*|stammer(?:ing)?|unplanned pauses?|speech rate|speaking rate|words per minute|wpm|jargon|vocabular(?:y|ies)|word choice|terminolog(?:y|ies)|technical (?:terms?|words?|vocabulary)|speciali[sz]ed (?:terms?|words?|vocabulary)|gestures?|eye contact)\b",
     "Fluency": r"\b(?:intonation|pitch|prosody|volume|loudness|tone of voice|jargon|vocabulary|word choice|gestures?|eye contact)\b",
     "Nonverbal Communication": r"\b(?:intonation|pitch|prosody|volume|loudness|tone of voice|filler words?|verbal fillers?|stammer(?:ing)?|unplanned pauses?|speech rate|speaking rate|words per minute|wpm|jargon|vocabulary|word choice)\b"
 }
@@ -442,7 +442,10 @@ def run_grading(text_model: str, vision_model: str, transcript: str, duration: f
             evidence = {"transcript": transcript[:18000]}
             has_evidence = bool(transcript.strip()) and speech_metrics.get("transcript_word_count", 0) > 0
         elif name == "Vocal Delivery":
-            evidence = {"acoustic_measurements": audio_metrics, "transcript_context": transcript[:5000]}
+            # Vocal Delivery is limited to audible volume and intonation.
+            # Do not provide transcript text: fillers belong to Fluency and
+            # terminology/vocabulary belong to Word Choice.
+            evidence = {"acoustic_measurements": audio_metrics}
             has_evidence = bool(audio_metrics.get("segment_features")) or any(audio_metrics.get(k) is not None for k in ("pitch_median_hz", "pitch_10_to_90_range_semitones", "relative_intensity_median_db"))
         else:
             evidence = {"body_hand_tracking": compact_visual_tracking(visual_tracking), "sampled_frame_observations": visual_notes[:12000], "speech_motion_alignment": alignment[:50]}
@@ -459,6 +462,7 @@ Evidence:
 CATEGORY SCOPE — STRICT SEPARATION:
 {CATEGORY_SCOPE[name]}
 - Base this category's score ONLY on the criteria named above. Do not import evidence from another category, even if factually correct.
+- VOCAL DELIVERY EXCLUSION: Do not discuss, quote, count, characterize, or evaluate filler words, disfluencies, vocabulary, terminology, technical terms, jargon, or word choice. These are not Vocal Delivery criteria. The Vocal Delivery evidence payload contains acoustic measurements only; assess only volume and intonation for emphasis. If an excluded topic seems relevant, omit it entirely rather than mentioning it as a limitation or comparison.
 - Apply this boundary to score rationale, evidence, positive observations, actionable feedback, limitations, and adjacent-level reasoning.
 - Word Choice must never be justified or penalized by intonation, tone, volume, pauses, pace, stammering, or fillers.
 SCORING CALIBRATION:
