@@ -1,6 +1,15 @@
+import ast
 import unittest
+from pathlib import Path
 
-from prompt_helpers import category_prompt_instructions, ensure_nonempty_limitations
+APP_PATH = Path(__file__).with_name("app.py")
+APP_TREE = ast.parse(APP_PATH.read_text(encoding="utf-8"))
+TARGET_NAMES = {"category_prompt_instructions", "ensure_nonempty_limitations"}
+TARGET_NODES = [node for node in APP_TREE.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in TARGET_NAMES]
+NAMESPACE = {}
+exec(compile(ast.Module(body=TARGET_NODES, type_ignores=[]), str(APP_PATH), "exec"), NAMESPACE)
+category_prompt_instructions = NAMESPACE["category_prompt_instructions"]
+ensure_nonempty_limitations = NAMESPACE["ensure_nonempty_limitations"]
 
 
 class CategoryPromptInstructionTests(unittest.TestCase):
